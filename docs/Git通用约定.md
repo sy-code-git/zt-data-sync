@@ -30,10 +30,13 @@ git commit -m "发布: <说明>"
 
 **效果**：dev 的整段开发历史压成 main 上一个干净提交，dev 提交对象不进远端。
 
-**同步**：合入后立即回同步，保证下次 squash 从新基点计算 diff：
+**同步**：合入后立即回同步（dev 拉取 main 内容做「对齐提交」），
+保证下次 squash 从新基点计算 diff，且 dev 历史保持线性、无 Merge 提交：
 
 ```bash
-git checkout dev && git merge main
+git checkout dev
+git rm -rf -q . && git checkout main -- . && git add -A
+git commit -m "同步: 对齐发布分支 main"
 ```
 
 ## 四、推送规则
