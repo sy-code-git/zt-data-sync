@@ -30,14 +30,9 @@ git commit -m "发布: <说明>"
 
 **效果**：dev 的整段开发历史压成 main 上一个干净提交，dev 提交对象不进远端。
 
-**同步**：合入后立即回同步（dev 拉取 main 内容做「对齐提交」），
-保证下次 squash 从新基点计算 diff，且 dev 历史保持线性、无 Merge 提交：
-
-```bash
-git checkout dev
-git rm -rf -q . && git checkout main -- . && git add -A
-git commit -m "同步: 对齐发布分支 main"
-```
+**同步**：合入后立即回同步（`git checkout dev && git merge main`），
+更新 merge-base 避免下次 squash 对已发布文件的再修改产生三路冲突。
+Merge 提交只出现在本地 dev（不推远程），远程 main 永远是干净发布历史。
 
 ## 四、推送规则
 
