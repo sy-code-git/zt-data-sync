@@ -1,0 +1,30 @@
+# passbook 服务端 docker-compose（§14.1 1.9 验收：一条命令拉起）
+# 用法：
+#   1. 生成证书：scripts/gen-ca.sh ./certs
+#   2. 设置 PB_REG_SECRET（keytool 与服务端共享，§4.4）
+#   3. docker compose up -d
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    container_name: passbook-server
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      - passbook-data:/data
+      - ./certs:/certs:ro
+    environment:
+      PB_DATA_DIR: /data
+      PB_ADDR: :8443
+      PB_TLS_CERT: /certs/server.crt
+      PB_TLS_KEY: /certs/server.key
+      # 必配：注册凭证密钥（与 keytool 一致，§4.4）；首启引导 token 见容器日志
+      PB_REG_SECRET: ${PB_REG_SECRET:?请在 .env 中设置 PB_REG_SECRET}
+      # 可选：预置首启引导 token（不设置则启动时打印一次到日志，§12.2）
+      PB_BOOTSTRAP_CODE: ${PB_BOOTSTRAP_CODE:-}
+      PB_TOKEN_TTL: ${PB_TOKEN_TTL:-720h}
+
+volumes:
+  passbook-data:

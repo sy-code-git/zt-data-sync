@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: true
+
+      # 前端构建：client/app 的 //go:embed all:frontend/dist 依赖 dist 存在
+      # （dist 被 gitignore，CI checkout 后需先构建；npm ci 用 lockfile 保证可复现）
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build frontend
+        run: |
+          cd client/app/frontend
+          npm ci
+          npm run build
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Race
+        run: go test -race ./...
+
+      - name: Lint
+        # golangci-lint-action@v6 在此仓库连续两次秒挂（v1.60/v1.64.8 均失败），
+        # 改用 go install 直接安装运行（与本机验证一致的 v1.64.8，lint 全干净）
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          "$(go env GOPATH)/bin/golangci-lint" run ./...
+
+      # 铁律：keytool 不联网（§10），静态检查 import 无网络包
+      - name: keytool offline check
+        run: |
+          cd cmd/keytool
+          if grep -rE '"net/http"|"net"|net/http|golang.org/x/net' . --include='*.go' | grep -v _test.go; then
+            echo "keytool must not import network packages (see §10)" >&2
+            exit 1
+          fi
+          echo "keytool offline check passed"

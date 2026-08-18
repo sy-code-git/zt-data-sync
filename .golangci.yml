@@ -1,0 +1,36 @@
+run:
+  concurrency: 4
+  timeout: 5m
+  issues-exit-code: 1
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - gosec
+    - gocritic
+    - ineffassign
+    - unused
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+  gosec:
+    excludes:
+      # 允许使用 crypto/rand（本项目强制）以外场景的静态误报白名单在此补充
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+    disabled-checks:
+      - ifElseChain
+
+issues:
+  exclude-rules:
+    # 测试文件放宽部分检查
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
