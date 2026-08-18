@@ -38,6 +38,10 @@ export function AdminRemoveMember(arg1, arg2, arg3) {
   return window['go']['main']['App']['AdminRemoveMember'](arg1, arg2, arg3);
 }
 
+export function AdminRevoke(arg1, arg2) {
+  return window['go']['main']['App']['AdminRevoke'](arg1, arg2);
+}
+
 export function AdminUnarchiveGroup(arg1) {
   return window['go']['main']['App']['AdminUnarchiveGroup'](arg1);
 }

@@ -774,6 +774,11 @@ func (e *Engine) authRetry(fn func() error) error {
 		return err
 	}
 	if rerr := e.maybeRefreshToken(); rerr != nil {
+		// 刷新接口也返回认证失败 → token 彻底失效（被吊销/作废），
+		// 通知 UI 引导重新解锁（网络类错误不算失效，静默等下次）
+		if api.IsAuthErr(rerr) {
+			e.emit(api.Event{Type: api.EventAuthExpired, Data: "登录已失效，请重新解锁", At: e.now()})
+		}
 		return err // 刷新失败返回原 401
 	}
 	return fn()

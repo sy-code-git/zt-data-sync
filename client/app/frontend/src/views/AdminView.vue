@@ -27,6 +27,15 @@ const selectedGroup = ref(null)
 const members = ref([])
 // 待确认移除的成员 user_id（两步确认）
 const confirmRemoveMemberID = ref('')
+// 待确认吊销的成员 user_id（两步确认）
+const confirmRevokeUserID = ref('')
+// 方案 C：邀请码 + 注册申请审核（§6.3）
+const inviteUsername = ref('')
+const inviteAutoApprove = ref(false)
+const inviteTTLDays = ref(3)
+const invites = ref([])
+const regRequests = ref([])
+const regReviewName = ref('')
 // 设备（主机信息）面板
 const showDevices = ref(false)
 const devices = ref([])
@@ -46,6 +55,74 @@ async function refresh() {
   } catch (e) {
     tip.value = String(e.message || e)
     tipType.value = 'err'
+  }
+  loadInvites()
+  loadRegisterRequests()
+}
+
+// 邀请码：生成 / 列表
+async function doCreateInvite() {
+  if (!inviteUsername.value.trim()) {
+    flash('请输入工号', 'err')
+    return
+  }
+  busy.value = true
+  try {
+    const inv = await api.AdminCreateInvite(inviteUsername.value.trim(), inviteAutoApprove.value, inviteTTLDays.value || 0)
+    inviteUsername.value = ''
+    flash(`已生成邀请码 ${inv.code}${inv.auto_approve ? '（免审核）' : ''}，有效期至 ${new Date(inv.expires_at * 1000).toLocaleDateString()}`)
+    loadInvites()
+  } catch (e) {
+    flash(String(e.message || e), 'err')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function loadInvites() {
+  try {
+    invites.value = (await api.AdminListInvites()) || []
+  } catch (e) {
+    // 忽略（老服务端无此接口时静默）
+  }
+}
+
+// 注册申请：列表 / 通过（开户）/ 拒绝
+async function loadRegisterRequests() {
+  try {
+    regRequests.value = (await api.AdminListRegisterRequests('pending')) || []
+  } catch (e) {
+    // 忽略
+  }
+}
+
+async function doApproveRequest(rq) {
+  const name = (regReviewName.value || '').trim() || rq.username
+  if (!confirm(`通过申请并开户「${rq.username}」？（显示名：${name}；公钥/设备名/IP 已核对）`)) return
+  busy.value = true
+  try {
+    await api.AdminApproveRegisterRequest(rq.id, name)
+    flash(`已开户「${rq.username}」（显示名 ${name}）`)
+    regReviewName.value = ''
+    loadRegisterRequests()
+  } catch (e) {
+    flash(String(e.message || e), 'err')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function doRejectRequest(rq) {
+  if (!confirm(`拒绝申请「${rq.username}」？`)) return
+  busy.value = true
+  try {
+    await api.AdminRejectRegisterRequest(rq.id)
+    flash(`已拒绝「${rq.username}」`)
+    loadRegisterRequests()
+  } catch (e) {
+    flash(String(e.message || e), 'err')
+  } finally {
+    busy.value = false
   }
 }
 
@@ -159,6 +236,21 @@ async function doUnarchiveGroup(g) {
   }
 }
 
+// 从「注册信息」（成员复制：工号+公钥）导入，避免手输工号出错（§6.3）
+function pasteRegInfo() {
+  const raw = prompt('粘贴成员发来的「注册信息」（格式：工号：xxx / 公钥：xxx）：')
+  if (!raw) return
+  const uname = raw.match(/工号[:：]\s*(\S+)/)
+  const pub = raw.match(/公钥[:：]\s*(\S+)/)
+  if (!uname || !pub) {
+    flash('解析失败：未找到「工号」或「公钥」（请复制成员端「复制注册信息」的内容）', 'err')
+    return
+  }
+  newUser.value.username = uname[1].trim()
+  newUser.value.publicKey = pub[1].trim()
+  flash(`已从注册信息导入工号「${newUser.value.username}」，核对后开户`, 'info')
+}
+
 // 移除组内成员（两步确认，服务端要求成员名二次确认）
 async function doRemoveMember(m) {
   if (!selectedGroup.value) return
@@ -172,6 +264,30 @@ async function doRemoveMember(m) {
   try {
     await api.AdminRemoveMember(selectedGroup.value.id, m.user_id, m.name)
     flash(`成员「${m.name}」已移出组「${selectedGroup.value.name}」`)
+    members.value = await api.AdminListMembers(selectedGroup.value.id)
+  } catch (e) {
+    flash(String(e.message || e), 'err')
+  } finally {
+    busy.value = false
+  }
+}
+
+// 吊销成员（两步确认 + 服务端成员名二次确认；吊销后空组告警）
+async function doRevokeMember(m) {
+  if (confirmRevokeUserID.value !== m.user_id) {
+    confirmRevokeUserID.value = m.user_id
+    flash(`再次点击确认吊销成员「${m.name}」`, 'info')
+    return
+  }
+  confirmRevokeUserID.value = ''
+  busy.value = true
+  try {
+    const emptyGroups = await api.AdminRevoke(m.user_id, m.name)
+    if (emptyGroups && emptyGroups.length) {
+      flash(`成员「${m.name}」已吊销 ⚠ 以下组已无成员：${emptyGroups.join('、')}（组密钥重加密将无人执行）`, 'err')
+    } else {
+      flash(`成员「${m.name}」已吊销，组内成员将自动重加密`)
+    }
     members.value = await api.AdminListMembers(selectedGroup.value.id)
   } catch (e) {
     flash(String(e.message || e), 'err')
@@ -217,6 +333,7 @@ function fmtTime(ts) {
           {{ showDevices ? '收起设备' : `设备（${devices.length}）` }}
         </button>
         <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="refresh">⟳ 刷新</button>
+        <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="store.lock()">⏻ 锁定</button>
         <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="store.goto('list')">← 返回</button>
       </div>
     </div>
@@ -282,6 +399,13 @@ function fmtTime(ts) {
                 >
                   {{ confirmRemoveMemberID === m.user_id ? '确认移除' : '移除' }}
                 </button>
+                <button
+                    class="pb-btn pb-btn--danger pb-btn--sm"
+                    :disabled="busy"
+                    @click="doRevokeMember(m)"
+                >
+                  {{ confirmRevokeUserID === m.user_id ? '确认吊销' : '吊销' }}
+                </button>
               </div>
             </div>
             <p v-if="!members.length" class="pb-xs pb-muted">该组暂无成员</p>
@@ -293,10 +417,16 @@ function fmtTime(ts) {
       <div class="pb-glass admin__panel">
         <div class="admin__panel-title">成员开户</div>
         <div class="admin__form">
-          <input v-model="newUser.username" class="pb-input pb-input--mono" placeholder="工号（唯一、不可改）" />
-          <input v-model="newUser.name" class="pb-input" placeholder="显示名" />
+          <div class="admin__form-row">
+            <input v-model="newUser.username" class="pb-input pb-input--mono" placeholder="工号（唯一、不可改）" />
+            <input v-model="newUser.name" class="pb-input" placeholder="显示名" />
+          </div>
           <textarea v-model="newUser.publicKey" class="pb-input pb-input--mono admin__textarea" placeholder="公钥（base64，成员客户端生成后复制给你）"></textarea>
-          <button class="pb-btn pb-btn--primary pb-btn--block" :disabled="busy" @click="doCreateUser">开户</button>
+          <div class="admin__form-row">
+            <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="pasteRegInfo">📋 从注册信息导入</button>
+            <button class="pb-btn pb-btn--primary pb-btn--block" style="flex:1" :disabled="busy" @click="doCreateUser">开户</button>
+          </div>
+          <p v-if="tip" class="pb-xs" :class="`admin__tip--${tipType}`">{{ tip }}</p>
         </div>
 
         <div class="admin__panel-title" style="margin-top: 16px">
@@ -335,6 +465,56 @@ function fmtTime(ts) {
       <button class="pb-btn pb-btn--primary pb-btn--sm" :disabled="busy || !addMember.groupID || !addMember.userID" @click="doAddMember">
         确认加入
       </button>
+    </div>
+
+    <!-- 方案 C：注册申请审核面板 -->
+    <div class="pb-glass admin__panel">
+      <div class="admin__panel-title">注册申请审核（{{ regRequests.length }} 待审）</div>
+      <div v-if="regRequests.length" class="admin__list">
+        <div v-for="rq in regRequests" :key="rq.id" class="admin__item">
+          <div class="admin__item-main">
+            <span class="admin__item-title">工号 {{ rq.username }}</span>
+            <span class="pb-xs pb-muted">
+              设备：{{ rq.device_name || '—' }} · IP：{{ rq.ip || '—' }} · 申请时间 {{ new Date(rq.created_at * 1000).toLocaleString() }}
+            </span>
+            <span class="pb-xs pb-muted pb-break-all">公钥：{{ rq.sm2_public_key }}</span>
+            <div class="admin__form-row" style="margin-top:8px">
+              <input v-model="regReviewName" class="pb-input pb-input--mono" style="flex:1" placeholder="显示名（默认=工号）" spellcheck="false" />
+              <button class="pb-btn pb-btn--primary pb-btn--sm" :disabled="busy" @click="doApproveRequest(rq)">✓ 通过并开户</button>
+              <button class="pb-btn pb-btn--ghost pb-btn--sm pb-btn--danger" :disabled="busy" @click="doRejectRequest(rq)">✕ 拒绝</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p v-else class="pb-xs pb-muted">暂无待审核的注册申请</p>
+    </div>
+
+    <!-- 方案 C：邀请码面板 -->
+    <div class="pb-glass admin__panel">
+      <div class="admin__panel-title">邀请码（注册码，绑定工号）</div>
+      <div class="admin__form">
+        <div class="admin__form-row">
+          <input v-model="inviteUsername" class="pb-input pb-input--mono" style="flex:1" placeholder="工号（该工号注册用）" spellcheck="false" />
+          <input v-model.number="inviteTTLDays" type="number" min="1" class="pb-input pb-input--mono" style="width:70px" title="有效期天数（默认3天）" />
+          <label class="admin__switch" title="免审核：提交申请即自动开户">
+            <input type="checkbox" v-model="inviteAutoApprove" />
+            <span class="pb-xs">免审核</span>
+          </label>
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" :disabled="busy" @click="doCreateInvite">生成</button>
+        </div>
+      </div>
+      <div class="admin__list" v-if="invites.length">
+        <div v-for="inv in invites" :key="inv.code" class="admin__item">
+          <div class="admin__item-main">
+            <span class="admin__item-title pb-mono">{{ inv.code }}</span>
+            <span class="pb-xs pb-muted">
+              工号 {{ inv.username }} · {{ inv.auto_approve ? '免审核' : '需审核' }} ·
+              {{ inv.status === 'used' ? '已使用' : `有效至 ${new Date(inv.expires_at * 1000).toLocaleDateString()}` }}
+            </span>
+          </div>
+        </div>
+      </div>
+      <p v-else class="pb-xs pb-muted">暂无邀请码</p>
     </div>
 
     <!-- 设备（主机信息）面板 -->

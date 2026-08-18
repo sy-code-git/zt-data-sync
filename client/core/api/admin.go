@@ -89,9 +89,14 @@ func (c *HTTPClient) AdminCreateUser(req *proto.CreateUserRequest) (*proto.Creat
 }
 
 // AdminRevoke POST /admin/users/{uid}/revoke（吊销成员，二次确认）。
-func (c *HTTPClient) AdminRevoke(uid, confirmName string) error {
-	return c.do(http.MethodPost, "/admin/users/"+url.PathEscape(uid)+"/revoke",
-		nil, &proto.RevokeRequest{ConfirmName: confirmName}, nil)
+// 返回吊销后已无成员的组名列表（EmptyGroups，供管理端告警）。
+func (c *HTTPClient) AdminRevoke(uid, confirmName string) ([]string, error) {
+	var resp proto.RevokeResponse
+	if err := c.do(http.MethodPost, "/admin/users/"+url.PathEscape(uid)+"/revoke",
+		nil, &proto.RevokeRequest{ConfirmName: confirmName}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.EmptyGroups, nil
 }
 
 // AdminKeyfileReset POST /admin/users/{uid}/keyfile-reset（keyfile 丢失找回/换绑公钥）。

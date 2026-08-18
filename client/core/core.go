@@ -300,6 +300,15 @@ func (c *Core) RegisterDevice(username, deviceName string) error {
 	if err := c.completeDeviceSetup(regResp.Token, regResp.DeviceID, regResp.ExpiresIn); err != nil {
 		return err
 	}
+	// 5. 工号联动：注册界面可能修改过工号 → 同步本地身份工号，
+	//    避免下次解锁「工号不匹配」（私钥不变，仅更新标识标签）
+	if id, err := c.local.GetIdentity(); err == nil && id != nil && id.Username != username {
+		id.Username = username
+		if err := c.local.SetIdentity(id); err != nil {
+			return fmt.Errorf("同步本地工号失败: %w", err)
+		}
+		c.username = username
+	}
 	return nil
 }
 
@@ -349,7 +358,7 @@ func (c *Core) completeDeviceSetup(token, deviceID string, expiresIn int64) erro
 	if err != nil {
 		return err
 	}
-	ds := &store.DeviceState{DeviceID: deviceID, TokenEnc: enc, ExpiresAt: expiresIn}
+	ds := &store.DeviceState{DeviceID: deviceID, TokenEnc: enc, ExpiresAt: time.Now().Unix() + expiresIn}
 	if err := c.local.SetDeviceState(ds); err != nil {
 		return err
 	}
@@ -507,6 +516,109 @@ func (c *Core) AdminRemoveMember(groupID, userID, confirmName string) error {
 	return hc.AdminRemoveMember(groupID, userID, confirmName)
 }
 
+// AdminRevoke 吊销成员（成员名二次确认；返回吊销后已无成员的组名，供空组告警）。
+func (c *Core) AdminRevoke(userID, confirmName string) ([]string, error) {
+	hc, err := c.adminHC()
+	if err != nil {
+		return nil, err
+	}
+	return hc.AdminRevoke(userID, confirmName)
+}
+
+// RegisterRequest 提交注册申请（免登录，凭邀请码；§6.3 方案 C）。
+// 返回 (申请ID, 状态)。状态 pending=待审核 / approved=免审核码直接开户。
+func (c *Core) RegisterRequest(inviteCode, username, publicKey, deviceName string) (string, string, error) {
+	if c.serverURL == "" {
+		return "", "", errors.New("未配置服务端地址")
+	}
+	hc, err := c.newHTTPClient("")
+	if err != nil {
+		return "", "", err
+	}
+	resp, err := hc.RegisterRequest(&proto.RegisterRequestRequest{
+		InviteCode: inviteCode, Username: username, SM2PublicKey: publicKey, DeviceName: deviceName,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return resp.ID, resp.Status, nil
+}
+
+// RegisterStatus 查询审核状态（免登录，按邀请码）。
+func (c *Core) RegisterStatus(inviteCode string) (string, error) {
+	if c.serverURL == "" {
+		return "", errors.New("未配置服务端地址")
+	}
+	hc, err := c.newHTTPClient("")
+	if err != nil {
+		return "", err
+	}
+	resp, err := hc.RegisterStatus(inviteCode)
+	if err != nil {
+		return "", err
+	}
+	return resp.Status, nil
+}
+
+// AdminCreateInvite 生成邀请码（绑定工号；autoApprove=免审核；ttlDays=有效期天数，0=默认3）。
+func (c *Core) AdminCreateInvite(username string, autoApprove bool, ttlDays int) (*proto.InviteOut, error) {
+	hc, err := c.adminHC()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := hc.AdminCreateInvite(&proto.CreateInviteRequest{Username: username, AutoApprove: autoApprove, TTLDays: ttlDays})
+	if err != nil {
+		return nil, err
+	}
+	return &resp.Invite, nil
+}
+
+// AdminListInvites 邀请码列表。
+func (c *Core) AdminListInvites() ([]proto.InviteOut, error) {
+	hc, err := c.adminHC()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := hc.AdminListInvites()
+	if err != nil {
+		return nil, err
+	}
+	return resp.Invites, nil
+}
+
+// AdminListRegisterRequests 注册申请列表（status 空=全部；pending 待审核）。
+func (c *Core) AdminListRegisterRequests(status string) ([]proto.RegisterRequestOut, error) {
+	hc, err := c.adminHC()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := hc.AdminListRegisterRequests(status)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Requests, nil
+}
+
+// AdminApproveRegisterRequest 审核通过（=开户，name 为显示名，空默认工号）。
+func (c *Core) AdminApproveRegisterRequest(id, name string) error {
+	hc, err := c.adminHC()
+	if err != nil {
+		return err
+	}
+	_, err = hc.AdminApproveRegisterRequest(id, name)
+	return err
+}
+
+// AdminRejectRegisterRequest 拒绝申请。
+func (c *Core) AdminRejectRegisterRequest(id string) error {
+	hc, err := c.adminHC()
+	if err != nil {
+		return err
+	}
+	_, err = hc.AdminRejectRegisterRequest(id)
+	return err
+}
+
 // AdminListDevices 设备/主机列表（§6.3，含在线状态/last_ip/hostname）。
 func (c *Core) AdminListDevices() ([]proto.AdminDevice, error) {
 	hc, err := c.adminHC()
@@ -562,6 +674,11 @@ func (c *Core) hookEngine() {
 
 // forwardEvent 桥接：engine 事件 → 当前 listener（换订阅者不重复挂载）。
 func (c *Core) forwardEvent(ev api.Event) {
+	// token 彻底失效 → 异步锁定（避免在 engine 事件回调栈内 Stop 自身；
+	// 停止同步后 UI 收到事件引导重新解锁，Unlock 会重建 engine）
+	if ev.Type == api.EventAuthExpired {
+		go c.Lock()
+	}
 	if c.listener != nil {
 		c.listener(ev)
 	}

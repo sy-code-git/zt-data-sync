@@ -75,6 +75,8 @@ func (s *Server) Router() http.Handler {
 		r.Post("/auth/bootstrap", s.handleBootstrap)
 		r.Post("/auth/device-challenge", s.handleDeviceChallenge)
 		r.Post("/auth/device", s.handleDeviceRegister)
+		r.Post("/auth/register-request", s.handleRegisterRequest)
+		r.Get("/auth/register-status", s.handleRegisterStatus)
 	})
 
 	auth := middleware.RequireAuth(s.store, authn.HashToken)
@@ -127,6 +129,11 @@ func (s *Server) Router() http.Handler {
 		r.Get("/admin/devices", s.handleAdminDevices)
 		r.Post("/admin/devices/{did}/disable", s.handleAdminDisableDevice)
 		r.Get("/admin/audit", s.handleAdminAudit)
+		r.Post("/admin/invites", s.handleAdminCreateInvite)
+		r.Get("/admin/invites", s.handleAdminListInvites)
+		r.Get("/admin/register-requests", s.handleAdminListRegisterRequests)
+		r.Post("/admin/register-requests/{id}/approve", s.handleAdminApproveRequest)
+		r.Post("/admin/register-requests/{id}/reject", s.handleAdminRejectRequest)
 	})
 
 	// 健康探针

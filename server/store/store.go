@@ -108,6 +108,42 @@ type AuditEvent struct {
 	Detail     string // 元数据 JSON
 }
 
+// invites / register_requests 状态常量（§6.3 方案 C）。
+const (
+	InviteUnused = "unused"
+	InviteUsed   = "used"
+	RegPending   = "pending"
+	RegApproved  = "approved"
+	RegRejected  = "rejected"
+)
+
+// Invite 邀请码（方案 C：绑定工号、一次即废；同工号未开户可重复生成；免审核码 auto_approve=1）。
+type Invite struct {
+	ID          string
+	Code        string
+	Username    string // 绑定工号（唯一、不可改）
+	AutoApprove int    // 1=免审核（提交申请即自动开户）
+	Status      string // unused | used
+	ExpiresAt   int64
+	CreatedBy   string
+	CreatedAt   int64
+	UsedAt      int64
+}
+
+// RegisterRequest 注册申请（用户凭邀请码提交；管理员审核通过即开户）。
+type RegisterRequest struct {
+	ID           string
+	InviteCode   string
+	Username     string
+	SM2PublicKey string
+	DeviceName   string
+	IP           string // 申请来源 IP（服务端记录，审核时核对）
+	Status       string // pending | approved | rejected
+	CreatedAt    int64
+	ReviewedBy   string
+	ReviewedAt   int64
+}
+
 // Tx 事务内操作接口（§6.1：所有写操作包事务；写方法接收 tx）。
 type Tx interface {
 	// ---- 全局序列号 ----
@@ -213,6 +249,17 @@ type Store interface {
 	QueryAudit(from, to int64, userID, action string, limit int) ([]AuditEvent, error)
 	// ListAllDevices 全部设备（admin 设备列表，§6.3）。
 	ListAllDevices() ([]Device, error)
+
+	// ---- invites / register_requests（方案 C：邀请码 + 审核制，§6.3）----
+	CreateInvite(inv *Invite) error
+	GetInviteByCode(code string) (*Invite, error)
+	MarkInviteUsed(code string, usedAt int64) error
+	ListInvites() ([]Invite, error)
+	CreateRegisterRequest(r *RegisterRequest) error
+	GetRegisterRequestByInvite(code string) (*RegisterRequest, error)
+	GetRegisterRequestByID(id string) (*RegisterRequest, error)
+	ListRegisterRequests(status string) ([]RegisterRequest, error)
+	UpdateRegisterRequest(id, status, reviewedBy string, reviewedAt int64) error
 }
 
 // 哨兵错误。

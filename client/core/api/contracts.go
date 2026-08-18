@@ -177,6 +177,9 @@ const (
 	EventRekeyDone      EventType = "rekey_done"
 	EventLocked         EventType = "locked"
 	EventError          EventType = "error"
+	// EventAuthExpired token 彻底失效（401 且刷新也 401：被吊销/作废）——
+	// UI 收到后应引导重新解锁。
+	EventAuthExpired EventType = "auth_expired"
 )
 
 // Event 事件结构（订阅通道发送）。

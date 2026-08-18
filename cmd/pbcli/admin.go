@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"passbook/client/core/api"
 	"passbook/client/core/store"
@@ -140,7 +142,7 @@ func registerDevice(v *vault.Vault, local store.LocalStore, serverURL, username,
 	if err != nil {
 		return "", nil, err
 	}
-	ds := &store.DeviceState{DeviceID: regResp.DeviceID, TokenEnc: enc, ExpiresAt: regResp.ExpiresIn}
+	ds := &store.DeviceState{DeviceID: regResp.DeviceID, TokenEnc: enc, ExpiresAt: time.Now().Unix() + regResp.ExpiresIn}
 	if err := local.SetDeviceState(ds); err != nil {
 		return "", nil, err
 	}
@@ -215,7 +217,7 @@ func cmdBootstrap(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := local.SetDeviceState(&store.DeviceState{DeviceID: resp.DeviceID, TokenEnc: enc, ExpiresAt: resp.ExpiresIn}); err != nil {
+	if err := local.SetDeviceState(&store.DeviceState{DeviceID: resp.DeviceID, TokenEnc: enc, ExpiresAt: time.Now().Unix() + resp.ExpiresIn}); err != nil {
 		return err
 	}
 	if err := local.SetServerURL(*server); err != nil {
@@ -239,7 +241,7 @@ func cmdBootstrap(args []string) error {
 // archive / unarchive / members / devices / groups / audit
 func cmdAdmin(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("用法: PB_SERVER=<url> PB_KEYFILE=<admin.key> pbcli admin <create-user|create-group|add-member|revoke|rekey|archive|unarchive|members|devices|groups|audit> ...")
+		return fmt.Errorf("用法: PB_SERVER=<url> PB_KEYFILE=<admin.key> pbcli admin <create-user|create-group|add-member|revoke|rekey|archive|unarchive|members|devices|groups|audit|create-invite|invites|requests|approve|reject> ...")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -285,6 +287,16 @@ func cmdAdmin(args []string) error {
 		return adminGroups(hc, rest)
 	case "audit":
 		return adminAudit(hc, rest)
+	case "create-invite":
+		return adminCreateInvite(hc, rest)
+	case "invites":
+		return adminInvites(hc, rest)
+	case "requests":
+		return adminRequests(hc, rest)
+	case "approve":
+		return adminApprove(hc, rest)
+	case "reject":
+		return adminReject(hc, rest)
 	default:
 		return fmt.Errorf("未知 admin 子命令 %q", sub)
 	}
@@ -399,10 +411,15 @@ func adminRevoke(hc *api.HTTPClient, args []string) error {
 	if *uid == "" || *confirm == "" {
 		return fmt.Errorf("--user 与 --confirm 必填")
 	}
-	if err := hc.AdminRevoke(*uid, *confirm); err != nil {
+	emptyGroups, err := hc.AdminRevoke(*uid, *confirm)
+	if err != nil {
 		return err
 	}
-	fmt.Println("已吊销。")
+	if len(emptyGroups) > 0 {
+		fmt.Printf("已吊销。⚠ 以下组已无成员: %s（组密钥重加密将无人执行）\n", strings.Join(emptyGroups, ", "))
+	} else {
+		fmt.Println("已吊销。")
+	}
 	return nil
 }
 
@@ -501,5 +518,101 @@ func adminAudit(hc *api.HTTPClient, args []string) error {
 	}
 	out, _ := json.MarshalIndent(events, "", "  ")
 	fmt.Println(string(out))
+	return nil
+}
+
+// adminCreateInvite 生成邀请码（绑定工号）。
+func adminCreateInvite(hc *api.HTTPClient, args []string) error {
+	fs := flag.NewFlagSet("create-invite", flag.ExitOnError)
+	username := fs.String("username", "", "绑定工号（必填）")
+	autoApprove := fs.Bool("auto-approve", false, "免审核：提交申请即自动开户")
+	ttl := fs.Int("ttl", 0, "有效期天数（0=默认3天）")
+	_ = fs.Parse(args)
+	if *username == "" {
+		return fmt.Errorf("--username 必填")
+	}
+	resp, err := hc.AdminCreateInvite(&proto.CreateInviteRequest{Username: *username, AutoApprove: *autoApprove, TTLDays: *ttl})
+	if err != nil {
+		return err
+	}
+	inv := resp.Invite
+	flag := ""
+	if inv.AutoApprove {
+		flag = "（免审核）"
+	}
+	fmt.Printf("邀请码: %s  工号: %s%s  有效期至 %s\n", inv.Code, inv.Username, flag, time.Unix(inv.ExpiresAt, 0).Format("2006-01-02"))
+	return nil
+}
+
+// adminInvites 邀请码列表。
+func adminInvites(hc *api.HTTPClient, _ []string) error {
+	resp, err := hc.AdminListInvites()
+	if err != nil {
+		return err
+	}
+	for _, inv := range resp.Invites {
+		status := "未使用"
+		if inv.Status == "used" {
+			status = "已使用"
+		}
+		extra := ""
+		if inv.AutoApprove {
+			extra = " 免审核"
+		}
+		fmt.Printf("%s  %s%s  %s  过期 %s\n", inv.Code, inv.Username, extra, status, time.Unix(inv.ExpiresAt, 0).Format("2006-01-02"))
+	}
+	return nil
+}
+
+// adminRequests 注册申请列表（--status 过滤，默认 pending）。
+func adminRequests(hc *api.HTTPClient, args []string) error {
+	fs := flag.NewFlagSet("requests", flag.ExitOnError)
+	status := fs.String("status", "pending", "pending|approved|rejected|空=全部")
+	_ = fs.Parse(args)
+	if *status == "all" {
+		*status = ""
+	}
+	resp, err := hc.AdminListRegisterRequests(*status)
+	if err != nil {
+		return err
+	}
+	for i := range resp.Requests {
+		rq := &resp.Requests[i]
+		fmt.Printf("%s  工号 %s  设备 %s  IP %s  状态 %s  申请 %s\n",
+			rq.ID, rq.Username, rq.DeviceName, rq.IP, rq.Status, time.Unix(rq.CreatedAt, 0).Format("01-02 15:04"))
+	}
+	return nil
+}
+
+// adminApprove 审核通过（=开户）。
+func adminApprove(hc *api.HTTPClient, args []string) error {
+	fs := flag.NewFlagSet("approve", flag.ExitOnError)
+	id := fs.String("id", "", "申请 id（必填）")
+	name := fs.String("name", "", "显示名（默认=工号）")
+	_ = fs.Parse(args)
+	if *id == "" {
+		return fmt.Errorf("--id 必填")
+	}
+	resp, err := hc.AdminApproveRegisterRequest(*id, *name)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("已开户（申请 %s → %s）\n", *id, resp.Status)
+	return nil
+}
+
+// adminReject 拒绝申请。
+func adminReject(hc *api.HTTPClient, args []string) error {
+	fs := flag.NewFlagSet("reject", flag.ExitOnError)
+	id := fs.String("id", "", "申请 id（必填）")
+	_ = fs.Parse(args)
+	if *id == "" {
+		return fmt.Errorf("--id 必填")
+	}
+	resp, err := hc.AdminRejectRegisterRequest(*id)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("已拒绝（申请 %s → %s）\n", *id, resp.Status)
 	return nil
 }
