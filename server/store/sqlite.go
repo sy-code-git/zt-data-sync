@@ -667,3 +667,104 @@ func classifyErr(err error) error {
 	}
 	return err
 }
+
+// ---- invites / register_requests（方案 C：审核制）----
+
+func (s *sqliteStore) CreateInvite(inv *Invite) error {
+	_, err := s.db.Exec(`INSERT INTO invites (id, code, username, auto_approve, status, expires_at, created_by, created_at, used_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))`,
+		inv.ID, inv.Code, inv.Username, inv.AutoApprove, inv.Status, inv.ExpiresAt, inv.CreatedBy, inv.CreatedAt, inv.UsedAt)
+	return err
+}
+
+func (s *sqliteStore) GetInviteByCode(code string) (*Invite, error) {
+	row := s.db.QueryRow(`SELECT id, code, username, auto_approve, status, expires_at, created_by, created_at, COALESCE(used_at, 0)
+		FROM invites WHERE code = ?`, code)
+	var i Invite
+	if err := row.Scan(&i.ID, &i.Code, &i.Username, &i.AutoApprove, &i.Status, &i.ExpiresAt, &i.CreatedBy, &i.CreatedAt, &i.UsedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNoRows
+		}
+		return nil, err
+	}
+	return &i, nil
+}
+
+func (s *sqliteStore) MarkInviteUsed(code string, usedAt int64) error {
+	_, err := s.db.Exec(`UPDATE invites SET status = 'used', used_at = ? WHERE code = ? AND status = 'unused'`, usedAt, code)
+	return err
+}
+
+func (s *sqliteStore) ListInvites() ([]Invite, error) {
+	rows, err := s.db.Query(`SELECT id, code, username, auto_approve, status, expires_at, created_by, created_at, COALESCE(used_at, 0)
+		FROM invites ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Invite
+	for rows.Next() {
+		var i Invite
+		if err := rows.Scan(&i.ID, &i.Code, &i.Username, &i.AutoApprove, &i.Status, &i.ExpiresAt, &i.CreatedBy, &i.CreatedAt, &i.UsedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, i)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) CreateRegisterRequest(r *RegisterRequest) error {
+	_, err := s.db.Exec(`INSERT INTO register_requests (id, invite_code, username, sm2_public_key, device_name, ip, status, created_at, reviewed_by, reviewed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))`,
+		r.ID, r.InviteCode, r.Username, r.SM2PublicKey, r.DeviceName, r.IP, r.Status, r.CreatedAt, r.ReviewedBy, r.ReviewedAt)
+	return err
+}
+
+func (s *sqliteStore) GetRegisterRequestByInvite(code string) (*RegisterRequest, error) {
+	row := s.db.QueryRow(`SELECT id, invite_code, username, sm2_public_key, device_name, COALESCE(ip,''), status, created_at, COALESCE(reviewed_by,''), COALESCE(reviewed_at,0)
+		FROM register_requests WHERE invite_code = ? ORDER BY created_at DESC LIMIT 1`, code)
+	var r RegisterRequest
+	if err := row.Scan(&r.ID, &r.InviteCode, &r.Username, &r.SM2PublicKey, &r.DeviceName, &r.IP, &r.Status, &r.CreatedAt, &r.ReviewedBy, &r.ReviewedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNoRows
+		}
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (s *sqliteStore) GetRegisterRequestByID(id string) (*RegisterRequest, error) {
+	row := s.db.QueryRow(`SELECT id, invite_code, username, sm2_public_key, device_name, COALESCE(ip,''), status, created_at, COALESCE(reviewed_by,''), COALESCE(reviewed_at,0)
+		FROM register_requests WHERE id = ?`, id)
+	var r RegisterRequest
+	if err := row.Scan(&r.ID, &r.InviteCode, &r.Username, &r.SM2PublicKey, &r.DeviceName, &r.IP, &r.Status, &r.CreatedAt, &r.ReviewedBy, &r.ReviewedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNoRows
+		}
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (s *sqliteStore) ListRegisterRequests(status string) ([]RegisterRequest, error) {
+	rows, err := s.db.Query(`SELECT id, invite_code, username, sm2_public_key, device_name, COALESCE(ip,''), status, created_at, COALESCE(reviewed_by,''), COALESCE(reviewed_at,0)
+		FROM register_requests WHERE (? = '' OR status = ?) ORDER BY created_at DESC`, status, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RegisterRequest
+	for rows.Next() {
+		var r RegisterRequest
+		if err := rows.Scan(&r.ID, &r.InviteCode, &r.Username, &r.SM2PublicKey, &r.DeviceName, &r.IP, &r.Status, &r.CreatedAt, &r.ReviewedBy, &r.ReviewedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) UpdateRegisterRequest(id, status, reviewedBy string, reviewedAt int64) error {
+	_, err := s.db.Exec(`UPDATE register_requests SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?`, status, reviewedBy, reviewedAt, id)
+	return err
+}

@@ -347,7 +347,16 @@ export const api = {
   AdminListUsers: () => call(WailsApp.AdminListUsers),
   AdminListMembers: (groupID) => call(WailsApp.AdminListMembers, groupID),
   AdminRemoveMember: (groupID, userID, confirmName) => call(WailsApp.AdminRemoveMember, groupID, userID, confirmName),
+  AdminRevoke: (userID, confirmName) => call(WailsApp.AdminRevoke, userID, confirmName),
   AdminListDevices: () => call(WailsApp.AdminListDevices),
+  // 方案 C：邀请码 + 审核制（§6.3）
+  RegisterRequest: (inviteCode, username, publicKey, deviceName) => call(WailsApp.RegisterRequest, inviteCode, username, publicKey, deviceName),
+  RegisterStatus: (inviteCode) => call(WailsApp.RegisterStatus, inviteCode),
+  AdminCreateInvite: (username, autoApprove, ttlDays) => call(WailsApp.AdminCreateInvite, username, autoApprove, ttlDays),
+  AdminListInvites: () => call(WailsApp.AdminListInvites),
+  AdminListRegisterRequests: (status) => call(WailsApp.AdminListRegisterRequests, status),
+  AdminApproveRegisterRequest: (id, name) => call(WailsApp.AdminApproveRegisterRequest, id, name),
+  AdminRejectRegisterRequest: (id) => call(WailsApp.AdminRejectRegisterRequest, id),
 }
 
 // 前端模块给 mock 注入预览数据（仅浏览器预览）

@@ -63,6 +63,13 @@ function onWinEvent(ev) {
     store.entries = []
     store.view = 'unlock'
   }
+  // token 彻底失效（被吊销/作废）→ 回解锁页并提示重新解锁
+  if (ev.type === 'auth_expired') {
+    store.unlocked = false
+    store.entries = []
+    store.view = 'unlock'
+    store.toast(String(ev.data || '登录已失效，请重新解锁'), 'error')
+  }
   if (ev.type === 'error') {
     store.toast(String(ev.data || '同步异常'), 'error')
   }

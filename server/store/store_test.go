@@ -396,6 +396,16 @@ func (m *memoryStore) HasEnvelope(string, int, string) (bool, error) {
 func (m *memoryStore) QueryAudit(int64, int64, string, string, int) ([]AuditEvent, error) {
 	return nil, errNotImpl
 }
+func (m *memoryStore) CreateInvite(*Invite) error               { return errNotImpl }
+func (m *memoryStore) GetInviteByCode(string) (*Invite, error)  { return nil, errNotImpl }
+func (m *memoryStore) MarkInviteUsed(string, int64) error        { return errNotImpl }
+func (m *memoryStore) ListInvites() ([]Invite, error)            { return nil, errNotImpl }
+func (m *memoryStore) CreateRegisterRequest(*RegisterRequest) error { return errNotImpl }
+func (m *memoryStore) GetRegisterRequestByInvite(string) (*RegisterRequest, error) { return nil, errNotImpl }
+func (m *memoryStore) GetRegisterRequestByID(string) (*RegisterRequest, error) { return nil, errNotImpl }
+func (m *memoryStore) ListRegisterRequests(string) ([]RegisterRequest, error) { return nil, errNotImpl }
+func (m *memoryStore) UpdateRegisterRequest(string, string, string, int64) error { return errNotImpl }
+
 func (m *memoryStore) ListAllDevices() ([]Device, error)     { return nil, errNotImpl }
 
 func (t *memoryTx) DeleteOldTombstones(int64) error { return errNotImpl }

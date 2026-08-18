@@ -262,6 +262,70 @@ func (a *App) AdminAddMember(groupID, userID string) error {
 	return a.core.AdminAddMember(groupID, userID)
 }
 
+// AdminRevoke 吊销成员（成员名二次确认；返回吊销后已无成员的组名，供空组告警）。
+func (a *App) AdminRevoke(userID, confirmName string) ([]string, error) {
+	if a.core == nil {
+		return nil, errors.New("核心库未就绪")
+	}
+	return a.core.AdminRevoke(userID, confirmName)
+}
+
+// RegisterRequest 提交注册申请（免登录，凭邀请码；pending=待审核 / approved=已开户）。
+func (a *App) RegisterRequest(inviteCode, username, publicKey, deviceName string) (string, string, error) {
+	if a.core == nil {
+		return "", "", errors.New("核心库未就绪")
+	}
+	return a.core.RegisterRequest(inviteCode, username, publicKey, deviceName)
+}
+
+// RegisterStatus 查询审核状态（免登录，按邀请码）。
+func (a *App) RegisterStatus(inviteCode string) (string, error) {
+	if a.core == nil {
+		return "", errors.New("核心库未就绪")
+	}
+	return a.core.RegisterStatus(inviteCode)
+}
+
+// AdminCreateInvite 生成邀请码（绑定工号；autoApprove=免审核；ttlDays=0 默认 3 天）。
+func (a *App) AdminCreateInvite(username string, autoApprove bool, ttlDays int) (*proto.InviteOut, error) {
+	if a.core == nil {
+		return nil, errors.New("核心库未就绪")
+	}
+	return a.core.AdminCreateInvite(username, autoApprove, ttlDays)
+}
+
+// AdminListInvites 邀请码列表。
+func (a *App) AdminListInvites() ([]proto.InviteOut, error) {
+	if a.core == nil {
+		return nil, errors.New("核心库未就绪")
+	}
+	return a.core.AdminListInvites()
+}
+
+// AdminListRegisterRequests 注册申请列表（status 空=全部）。
+func (a *App) AdminListRegisterRequests(status string) ([]proto.RegisterRequestOut, error) {
+	if a.core == nil {
+		return nil, errors.New("核心库未就绪")
+	}
+	return a.core.AdminListRegisterRequests(status)
+}
+
+// AdminApproveRegisterRequest 审核通过（=开户，name 显示名，空默认工号）。
+func (a *App) AdminApproveRegisterRequest(id, name string) error {
+	if a.core == nil {
+		return errors.New("核心库未就绪")
+	}
+	return a.core.AdminApproveRegisterRequest(id, name)
+}
+
+// AdminRejectRegisterRequest 拒绝申请。
+func (a *App) AdminRejectRegisterRequest(id string) error {
+	if a.core == nil {
+		return errors.New("核心库未就绪")
+	}
+	return a.core.AdminRejectRegisterRequest(id)
+}
+
 // AdminListGroups 组列表。
 func (a *App) AdminListGroups() ([]proto.GroupInfo, error) {
 	if a.core == nil {

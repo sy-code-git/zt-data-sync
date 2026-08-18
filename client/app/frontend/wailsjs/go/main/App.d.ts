@@ -21,6 +21,8 @@ export function AdminListUsers():Promise<Array<proto.UserInfo>>;
 
 export function AdminRemoveMember(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function AdminRevoke(arg1:string,arg2:string):Promise<Array<string>>;
+
 export function AdminUnarchiveGroup(arg1:string):Promise<void>;
 
 export function AutoUnlockEnabled():Promise<boolean>;

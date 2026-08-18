@@ -1,5 +1,5 @@
 <script setup>
-import {ref, computed, onMounted} from 'vue'
+import {ref, computed, onMounted, onUnmounted} from 'vue'
 import {api} from '../api'
 import {useAppStore} from '../store'
 import {OpenFileDialog} from '../../wailsjs/go/main/App'
@@ -17,6 +17,12 @@ const verifying = ref(false)
 const hasSavedURL = ref(false)
 const serverMode = ref('saved') // 'saved' | 'new'
 const identityRole = ref('') // 本地身份角色：admin | member | ''（空=未初始化）
+const localUsername = ref('') // 本地身份工号（登录/锁定态显示，不可改）
+// 方案 C：注册码（邀请码）+ 审核状态
+const inviteCode = ref('')
+const regSubmitted = ref(false) // 是否已提交注册申请
+const regStatus = ref('')       // pending | approved | rejected
+const regPollTimer = ref(null)
 const forceLogin = ref(false) // 跳过注册，强制进入登录界面
 
 // 导入私钥备份（跳过注册后，用已有私钥恢复身份登录）
@@ -70,6 +76,11 @@ onMounted(async () => {
   // 读取本地身份角色（决定当前模式的「首次」vs「登录」）
   try {
     identityRole.value = (await api.Role()) || ''
+    try {
+      localUsername.value = (await api.Username()) || ''
+    } catch {
+      localUsername.value = ''
+    }
   } catch {
     identityRole.value = ''
   }
@@ -146,7 +157,8 @@ async function doUnlock() {
     tipType.value = 'err'
     return
   }
-  if (!username.value.trim()) {
+  const uname = (mode.value === 'userLogin' && localUsername.value) ? localUsername.value : username.value.trim()
+  if (!uname) {
     tip.value = '请输入工号'
     tipType.value = 'err'
     return
@@ -167,7 +179,7 @@ async function doUnlock() {
       await api.SetCA(caPath.value.trim())
     }
     // 工号+密码解锁（从本地库解私钥）
-    const res = await store.unlock(username.value.trim(), password.value)
+    const res = await store.unlock(uname, password.value)
     password.value = ''
     if (res && res.need_register) {
       // 已初始化但本地无设备 token（换设备）→ 注册设备
@@ -204,6 +216,11 @@ async function doGenerateKeypair() {
     tipType.value = 'err'
     return
   }
+  if (mode.value === 'userRegister' && !inviteCode.value.trim()) {
+    tip.value = '请输入注册码（管理员发放的邀请码）'
+    tipType.value = 'err'
+    return
+  }
   busy.value = true
   tip.value = '正在生成密钥对…'
   tipType.value = 'info'
@@ -218,15 +235,64 @@ async function doGenerateKeypair() {
     generatedPub.value = pubB64 || ''
     needRegister.value = true
     regUsername.value = username.value.trim()
-    tip.value = '密钥对已生成。请复制公钥交给管理员开户，再注册设备'
-    tipType.value = 'ok'
+    // 方案 C：凭邀请码提交注册申请（pending 等审核 / approved 免审核直通）
+    const [, status] = await api.RegisterRequest(
+        inviteCode.value.trim(), username.value.trim(), pubB64,
+        regDeviceName.value.trim() || undefined)
+    regSubmitted.value = true
+    regStatus.value = status
+    if (status === 'approved') {
+      tip.value = '已开户（免审核码），正在注册设备…'
+      await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || undefined)
+      tip.value = '注册成功，已进入密码本'
+      tipType.value = 'ok'
+    } else {
+      tip.value = '申请已提交，等待管理员审核（每 30 秒自动刷新）'
+      tipType.value = 'info'
+      startRegPoll()
+    }
   } catch (e) {
-    tip.value = String(e.message || e)
+    const msg = String(e.message || e)
+    tip.value = /邀请码|注册码/.test(msg) ? msg + '（请联系管理员核对注册码）' : msg
     tipType.value = 'err'
   } finally {
     busy.value = false
   }
 }
+
+// 轮询审核状态（30s）：approved → 自动注册设备；rejected → 提示
+function startRegPoll() {
+  stopRegPoll()
+  regPollTimer.value = setInterval(async () => {
+    try {
+      const st = await api.RegisterStatus(inviteCode.value.trim())
+      regStatus.value = st
+      if (st === 'approved') {
+        stopRegPoll()
+        tip.value = '审核已通过，正在注册设备…'
+        tipType.value = 'info'
+        await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || undefined)
+        tip.value = '注册成功，已进入密码本'
+        tipType.value = 'ok'
+      } else if (st === 'rejected') {
+        stopRegPoll()
+        tip.value = '申请已被拒绝，请联系管理员'
+        tipType.value = 'err'
+      }
+    } catch (e) {
+      // 网络波动忽略，下轮重试
+    }
+  }, 30000)
+}
+
+function stopRegPoll() {
+  if (regPollTimer.value) {
+    clearInterval(regPollTimer.value)
+    regPollTimer.value = null
+  }
+}
+
+onUnmounted(stopRegPoll)
 
 // 保存私钥备份到指定文件（换设备恢复用）
 async function doExportKeyfile() {
@@ -294,7 +360,7 @@ async function pickImportKeyfile() {
 }
 
 async function doRegister() {
-  if (!regUsername.value.trim()) {
+  if (!username.value.trim()) {
     tip.value = '请输入工号'
     tipType.value = 'err'
     return
@@ -303,10 +369,13 @@ async function doRegister() {
   tip.value = '正在注册设备…'
   tipType.value = 'info'
   try {
-    await store.registerDevice(regUsername.value.trim(), regDeviceName.value.trim() || undefined)
+    await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || undefined)
     needRegister.value = false
   } catch (e) {
-    tip.value = String(e.message || e)
+    const msg = String(e.message || e)
+    tip.value = /用户不存在|未开户/.test(msg)
+      ? '工号未开户或与公钥不匹配——请把「注册信息」发给管理员核对开户工号（管理员需用你提供的工号+公钥开户）'
+      : msg
     tipType.value = 'err'
   } finally {
     busy.value = false
@@ -317,6 +386,19 @@ async function copyPub() {
   try {
     await navigator.clipboard.writeText(generatedPub.value)
     tip.value = '公钥已复制'
+    tipType.value = 'ok'
+  } catch {
+    tip.value = '复制失败，请手动选择复制'
+    tipType.value = 'err'
+  }
+}
+
+// 复制完整注册信息（工号+公钥）给管理员开户，避免工号口头传达出错（§6.3）
+async function copyRegInfo() {
+  try {
+    await navigator.clipboard.writeText(`工号：${username.value.trim()}
+公钥：${generatedPub.value}`)
+    tip.value = '注册信息已复制（含工号+公钥），粘贴给管理员开户'
     tipType.value = 'ok'
   } catch {
     tip.value = '复制失败，请手动选择复制'
@@ -504,9 +586,28 @@ function submit() {
             </div>
           </template>
 
+          <div v-if="mode === 'userRegister'" class="pb-field">
+            <label class="pb-label">注册码（邀请码）</label>
+            <input
+                v-model="inviteCode"
+                class="pb-input pb-input--lg pb-input--mono"
+                placeholder="管理员发放的注册码（绑定你的工号）"
+                spellcheck="false"
+                autocomplete="off"
+            />
+          </div>
+
           <div class="pb-field">
             <label class="pb-label">工号</label>
             <input
+                v-if="mode === 'userLogin' && localUsername"
+                :value="localUsername"
+                class="pb-input pb-input--lg"
+                disabled
+                title="当前登录工号（不可改）"
+            />
+            <input
+                v-else
                 v-model="username"
                 class="pb-input pb-input--lg"
                 placeholder="输入工号（唯一、不可改）"
@@ -566,10 +667,21 @@ function submit() {
         <!-- 首次注册设备（§9.1：本地无设备 token） -->
         <div v-if="needRegister" class="unlock__section">
           <div class="unlock__section-title"><span>注册设备</span></div>
+          <!-- 方案 C：注册申请已提交 → 显示审核状态（自动轮询） -->
+          <div v-if="regSubmitted" class="unlock__pub">
+            <span class="pb-label">审核状态</span>
+            <p class="pb-xs">
+              <span v-if="regStatus === 'approved'" class="pb-badge pb-badge--success">已通过</span>
+              <span v-else-if="regStatus === 'rejected'" class="pb-badge pb-badge--danger">被拒绝</span>
+              <span v-else class="pb-badge pb-badge--neutral">待审核（每 30 秒自动刷新）</span>
+            </p>
+            <p v-if="regStatus === 'pending'" class="pb-xs pb-muted">申请已提交，管理员审核通过后将自动完成注册。</p>
+            <p v-if="regStatus === 'rejected'" class="pb-xs pb-muted">请与管理员确认拒绝原因（通常为工号/公钥不符）。</p>
+          </div>
           <!-- 工号即登录名，沿用注册时已输入的值，不再让用户重复输入 -->
           <div class="unlock__readonly">
-            <span class="pb-label">工号</span>
-            <span class="pb-mono pb-truncate">{{ regUsername }}</span>
+            <span class="pb-label">工号（可修改，注册用修改后的值）</span>
+            <span class="pb-mono pb-truncate">{{ username }}</span>
           </div>
           <input
               v-model="regDeviceName"
@@ -582,7 +694,10 @@ function submit() {
             <span class="pb-label">你的公钥（复制给管理员开户）</span>
             <div class="unlock__pub-row">
               <span class="pb-mono pb-truncate pb-fill">{{ generatedPub }}</span>
-              <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="copyPub">复制</button>
+              <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="copyPub">复制公钥</button>
+            </div>
+            <div class="unlock__pub-row">
+              <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="copyRegInfo">📋 复制注册信息（工号+公钥）</button>
             </div>
             <div class="unlock__pub-row">
               <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="doExportKeyfile">💾 保存私钥备份到文件</button>

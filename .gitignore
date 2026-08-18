@@ -59,3 +59,4 @@ tmp/
 # ---- 发布脚本（仅本地，不入库不随发布）----
 发布.bat
 发布.sh
+client/app/frontend/package.json.md5
