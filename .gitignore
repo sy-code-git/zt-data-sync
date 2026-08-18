@@ -1,0 +1,61 @@
+# ---- 敏感数据（绝不入库） ----
+# keyfile 私钥文件（口令保护）
+*.key
+# keyfile 配套注册凭证（含 attestation）
+*.pub.json
+# 本地/服务端 SQLite（含密文与 token）
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+# 本地备份
+backup/
+# 本地自签证书（含 CA 私钥，不入库）
+certs/
+
+# ---- 构建产物 ----
+bin/
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# ---- Wails（app / admin 共用） ----
+client/app/build/bin/
+client/admin/build/bin/
+client/app/frontend/node_modules/
+client/admin/frontend/node_modules/
+# wails.json 是项目配置（outputfilename 等），应入库；wails.ps1 根目录有才忽略
+
+# ---- Go ----
+vendor/
+*.sum.rej
+
+# ---- IDE / 系统 ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ---- 工程辅助 ----
+.workbuddy/
+tmp/
+*.log
+
+# ---- 编译产物目录（二进制不入库；编译脚本 build.sh 保留入库） ----
+编译/服务端/
+编译/客户端/
+*.crt
+*.pem
+编译/客户端产物/
+编译/服务端产物/
+
+# ---- 发布脚本（仅本地，不入库不随发布）----
+发布.bat
+发布.sh

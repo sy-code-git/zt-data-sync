@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>在线密码本 · 加解密与人员协同机制图解</title>
+<style>
+  :root{
+    --bg:#f6f5f1; --card:#ffffff; --ink:#1c1b18; --mut:#6b6a63; --line:#e4e2d9;
+    --blue:#185fa5; --blue-bg:#e6f1fb; --teal:#0f6e56; --teal-bg:#e1f5ee;
+    --amber:#8a5a08; --amber-bg:#fbf3e0; --red:#a32d2d; --red-bg:#fcebeb;
+    --green:#3b6d11; --green-bg:#eaf3de; --purple:#534ab7; --purple-bg:#eeedfe;
+    --gray-bg:#f1efe8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.65;padding-bottom:80px}
+  .wrap{max-width:900px;margin:0 auto;padding:0 20px}
+
+  header{padding:40px 0 14px}
+  .kicker{font-size:12px;letter-spacing:2px;color:var(--mut);text-transform:uppercase;margin-bottom:8px}
+  h1{font-size:27px;font-weight:700;letter-spacing:-0.4px}
+  .sub{color:var(--mut);font-size:14px;margin-top:6px}
+  nav{margin-top:18px;display:flex;gap:8px;flex-wrap:wrap}
+  nav a{text-decoration:none;font-size:13px;padding:6px 13px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+  nav a:hover{border-color:var(--blue);color:var(--blue)}
+
+  section{margin-top:40px}
+  .sec-head{display:flex;align-items:baseline;gap:12px;border-bottom:2px solid var(--ink);padding-bottom:8px}
+  .sec-head .no{font-size:12px;color:#fff;background:var(--ink);border-radius:6px;padding:2px 8px}
+  h2{font-size:20px;font-weight:700}
+  .oneline{margin-top:10px;font-size:14px;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--ink);border-radius:8px;padding:10px 14px}
+  .oneline b{font-weight:700}
+
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .lg{font-size:13px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);display:inline-flex;align-items:center;gap:7px}
+  .sw{width:14px;height:14px;border-radius:4px;display:inline-block}
+  .sw.man{background:var(--amber-bg);border:2px solid #e0b45f}
+  .sw.auto{background:var(--teal-bg);border:2px solid #7fc9ad}
+  .lg.man b{color:var(--amber)} .lg.auto b{color:var(--teal)}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:16px}
+  .flow-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px}
+  .flow-head h3{font-size:16px;font-weight:700}
+  .ratio{display:flex;gap:8px}
+  .chip{font-size:12px;padding:3px 10px;border-radius:999px}
+  .chip.man{background:var(--amber-bg);color:var(--amber);border:1px solid #e8cd8f}
+  .chip.auto{background:var(--teal-bg);color:var(--teal);border:1px solid #9cd4bb}
+
+  .stepper{position:relative;margin-top:10px}
+  .rail{position:absolute;left:19px;top:26px;bottom:26px;width:2px;background:var(--line)}
+  .step{position:relative;padding:0 0 14px 52px}
+  .step:last-child{padding-bottom:4px}
+  .dot{position:absolute;left:0;top:14px;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;z-index:1}
+  .dot.man{background:var(--amber)} .dot.auto{background:var(--teal)}
+  .st-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 16px;cursor:pointer;transition:border-color .2s,box-shadow .2s}
+  .st-card:hover{border-color:var(--blue)}
+  .step.man .st-card{border-left:3px solid #e0b45f}
+  .step.auto .st-card{border-left:3px solid #7fc9ad}
+  .step.active .st-card{border-color:var(--blue);box-shadow:0 0 0 2px rgba(24,95,165,.12)}
+  .st-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:6px;letter-spacing:1px}
+  .tag.man{background:var(--amber-bg);color:var(--amber);border:1px solid #e8cd8f}
+  .tag.auto{background:var(--teal-bg);color:var(--teal);border:1px solid #9cd4bb}
+  .actor{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px}
+  .a-admin{background:var(--purple-bg);color:var(--purple)} .a-server{background:var(--blue-bg);color:var(--blue)}
+  .a-member{background:var(--teal-bg);color:var(--teal)} .a-new{background:var(--green-bg);color:var(--green)}
+  .a-left{background:var(--red-bg);color:var(--red)} .a-client{background:var(--blue-bg);color:var(--blue)}
+  .st-title{font-size:15px;font-weight:600}
+  .st-desc{display:none;font-size:13px;color:var(--mut);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+  .step.active .st-desc{display:block}
+  .code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 5px;color:#333}
+  .note{border-radius:10px;padding:12px 16px;font-size:13px;margin-top:16px}
+  .note.good{border-left:3px solid var(--teal);background:var(--teal-bg)}
+  .note.warn{border-left:3px solid var(--red);background:var(--red-bg)}
+  .note b{font-weight:700}
+
+  .ctrl{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap}
+  button{font-size:13px;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);cursor:pointer;color:var(--ink)}
+  button:hover{border-color:var(--blue);color:var(--blue)}
+  button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  button.primary:hover{opacity:.85;color:#fff}
+  .pos{font-size:12px;color:var(--mut);margin-left:auto;font-variant-numeric:tabular-nums}
+  .dots{display:flex;gap:5px;align-items:center}
+  .dots i{width:7px;height:7px;border-radius:50%;background:var(--line);display:block}
+  .dots i.on{background:var(--blue)}
+
+  .hkey{display:flex;flex-direction:column;gap:0}
+  .hrow{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px}
+  .hbox{border-radius:10px;padding:12px 14px;text-align:center}
+  .hbox .t{font-size:13px;font-weight:600}
+  .hbox .d{font-size:12px;color:var(--mut);margin-top:2px}
+  .har{color:var(--mut);font-size:13px;white-space:nowrap;padding:0 4px}
+  .hnote{font-size:12px;color:var(--mut);text-align:center;margin-top:8px}
+  .k1{background:var(--amber-bg);border:1px solid #f0d9a8}
+  .k2{background:var(--purple-bg);border:1px solid #d5d2f2}
+  .k3{background:var(--teal-bg);border:1px solid #b7e3d2}
+  .k4{background:var(--blue-bg);border:1px solid #c3ddf2}
+  .k5{background:var(--red-bg);border:1px solid #f2c4c4}
+
+  /* 条目树 */
+  .tree{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .trow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap}
+  .tbox{border-radius:10px;padding:10px 14px;min-width:150px;flex:1 1 150px}
+  .tbox .t{font-size:13px;font-weight:700}
+  .tbox .d{font-size:12px;color:var(--mut);margin-top:2px}
+  .tconn{display:flex;align-items:center;color:var(--mut);font-size:13px;padding:0 6px}
+  .tl1{background:var(--purple-bg);border:1px solid #d5d2f2}
+  .tl2{background:var(--amber-bg);border:1px solid #f0d9a8}
+  .tl3{background:var(--blue-bg);border:1px solid #c3ddf2}
+  .tl4{background:var(--green-bg);border:1px solid #c6e3b5}
+  .tl5{background:var(--teal-bg);border:1px solid #b7e3d2}
+  .tleaf{border:2px solid var(--teal)!important}
+  .tflag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--gray-bg);border:1px solid var(--line);display:inline-block;margin-bottom:6px}
+
+  footer{margin-top:60px;color:var(--mut);font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Zero-Knowledge · SM2/SM3/SM4</div>
+  <h1>在线密码本 · 机制图解</h1>
+  <p class="sub">加解密流程 · 条目树 · 新人加入 · 老人退出 · 冲突解决 · keyfile找回 —— 基于《设计文档 v3（无感协同版）五修订》</p>
+  <nav>
+    <a href="#key">密钥层次</a>
+    <a href="#tree">条目树</a>
+    <a href="#crypto">加解密流程</a>
+    <a href="#join">新人加入</a>
+    <a href="#leave">老人退出</a>
+    <a href="#merge">冲突解决</a>
+    <a href="#recover">keyfile找回</a>
+  </nav>
+  <div class="legend">
+    <span class="lg man"><span class="sw man"></span><b>人操作</b>：需要有人点一下 / 输入一次</span>
+    <span class="lg auto"><span class="sw auto"></span><b>后台自动</b>：服务端 / 客户端自动完成，人不用管</span>
+  </div>
+</header>
+
+<section id="key">
+  <div class="sec-head"><span class="no">0</span><h2>密钥层次与零知识原理</h2></div>
+  <p class="lead">所有密钥只存在于客户端本地；服务端永远只看到「密文 + 信封 + 公钥」，拿不到 DEK、私钥和明文。</p>
+  <div class="panel">
+    <div class="hkey">
+      <div class="hrow"><div class="hbox k1"><div class="t">keyfile 口令（人脑）</div><div class="d">只有本人知道</div></div><div class="har">PBKDF2-SM3 ×10万</div><div class="hbox k2"><div class="t">KEK（16B）</div><div class="d">本地派生，保护私钥</div></div></div>
+      <div class="hrow"><div style="height:20px"></div></div>
+      <div class="hrow"><div class="hbox k2"><div class="t">KEK</div><div class="d">SM4-GCM 加密</div></div><div class="har">→ 解开 keyfile</div><div class="hbox k3"><div class="t">SM2 私钥</div><div class="d">只在内存，锁屏清零</div></div></div>
+      <div class="hrow"><div style="height:20px"></div></div>
+      <div class="hrow"><div class="hbox k3"><div class="t">SM2 私钥</div><div class="d">解自己的信封</div></div><div class="har">→ 得到 DEK</div><div class="hbox k4"><div class="t">DEK（16B · 每组一把）</div><div class="d">内存缓存，不落盘</div></div></div>
+      <div class="hrow"><div style="height:20px"></div></div>
+      <div class="hrow"><div class="hbox k4"><div class="t">DEK</div><div class="d">SM4-GCM 加密条目</div></div><div class="har">→ 密文包</div><div class="hbox k5"><div class="t">服务端（只存密文）</div><div class="d">密文 + 信封 + 公钥 + 版本号</div></div></div>
+    </div>
+    <div class="hnote">信封 = DEK 被某成员公钥加密后的副本；成员各自用私钥解开自己那份。服务端拖库 = 一堆没密钥的密文。</div>
+  </div>
+</section>
+
+<section id="tree">
+  <div class="sec-head"><span class="no">0+</span><h2>条目树 · 数据模型</h2></div>
+  <p class="oneline"><b>一句话：</b>主体是固定 <b>项目 → 环境 → IP类型 → 账号类型 → 账号</b> 五层骨架，各层可旁挂 <b>custom 补充卡片</b>（结构信息，不含账号）；树的挂接关系（parent_id）也加密在密文里，<b>服务端看不到层级</b>。</p>
+  <div class="panel">
+    <div class="flow-head"><h3>主体五层 + 各层旁挂 custom 卡片</h3><div class="ratio"><span class="chip auto">叶子 = 账号</span><span class="chip man">中间层 = 分组</span><span class="chip man">任一层旁挂 custom</span></div></div>
+    <div class="tree">
+      <div class="trow"><div class="tbox tl1"><div class="t">project</div><div class="d">项目节点 · parent_id=null</div></div><div class="tconn">→</div><div class="tbox tl2"><div class="t">env</div><div class="d">环境（生产/测试/开发）</div></div><div class="tconn">→</div><div class="tbox tl3"><div class="t">ip_type</div><div class="d">IP 分类（Web/DB/中间件）</div></div><div class="tconn">→</div><div class="tbox tl4"><div class="t">acc_type</div><div class="d">账号类型（OS/数据库）</div></div><div class="tconn">→</div><div class="tbox tl5 tleaf"><div class="t">account ★</div><div class="d">实际账号（存密码）</div></div></div>
+    </div>
+    <div class="hnote" style="margin-top:12px">▼ custom 万能节点：主体五层任一层的下方都能旁挂，作为散乱信息的补充卡片</div>
+    <div class="tree" style="margin-top:6px">
+      <div class="trow"><div class="tbox tl3"><div class="t">ip_type · Web</div><div class="d">主体节点</div></div><div class="tconn">└─旁挂</div><div class="tbox tl5" style="border:2px solid var(--purple)"><div class="t">custom · 结构信息</div><div class="d">custom_fields 自由键值：负责人 / 拓扑 / 采购日期…<b>不含账号</b>，叶子卡片不挂子节点</div></div></div>
+      <div class="trow"><div class="tbox tl2"><div class="t">env · 生产</div><div class="d">主体节点</div></div><div class="tconn">└─旁挂</div><div class="tbox tl5" style="border:2px solid var(--purple)"><div class="t">custom · 网络说明</div><div class="d">同样可挂，任何一层都行</div></div></div>
+    </div>
+    <div class="hnote" style="margin-top:12px">type 六选一：project / env / ip_type / acc_type / account / custom；每条目的 <span class="code">parent_id</span> 指向父节点 entry_id（密文明文内，服务端不可见）。</div>
+    <div class="note good" style="margin-top:14px"><b>custom 万能节点：</b>在 project / env / ip_type / acc_type 任一层的下方新增 <span class="code">type=custom</span> 节点，专门放<b>除账号外的结构性信息</b>（机房拓扑、负责人、说明、配置等散乱信息的补充）。内容全放 <span class="code">custom_fields</span>（键值自由增删），客户端用<span class="code">通用动态表单</span>自动渲染输入项；它是<b>叶子卡片、不挂任何子节点</b>——账号永远走固定五层的 acc_type→account 路径。</div>
+    <div class="note good" style="margin-top:14px"><b>操作都是普通编辑：</b>把节点拖到另一个父节点下 = 修改该条目的 <span class="code">parent_id</span> 并 push；删除一个分组 = 递归删除其下全部子节点（自动批量推送墓碑）。客户端按 <span class="code">parent_id</span> 组装出整棵树，搜索时对 <span class="code">account</span> 节点的 user / password / ip 建索引，支持任意组合筛选。</div>
+  </div>
+</section>
+
+<section id="crypto">
+  <div class="sec-head"><span class="no">1</span><h2>加解密流程</h2></div>
+  <p class="oneline"><b>一句话：</b>你只管「编辑保存」和「查看复制」；加解密、验章、上传拉取全部由客户端在后台自动完成，服务端只收密文。</p>
+
+  <div class="panel">
+    <div class="flow-head"><h3>写入一条密码：加密</h3><div class="ratio"><span class="chip man">人操作 1 步</span><span class="chip auto">后台自动 4 步</span></div></div>
+    <div class="stepper" data-flow="enc">
+      <div class="rail"></div>
+      <div class="step man active"><div class="dot man">1</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-client">你</span><span class="st-title">编辑条目 → 点保存</span></div><div class="st-desc">在树中选到账号节点（项目→环境→IP类型→账号类型→账号），编辑密码 / 备注，填好保存。之后发生的一切都不需要你再管。</div></div></div>
+      <div class="step auto"><div class="dot auto">2</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">取该组 DEK</span></div><div class="st-desc">从内存缓存取 group_id 对应的 DEK；没有就先用私钥解自己的信封。DEK 永不出内存、不上云。</div></div></div>
+      <div class="step auto"><div class="dot auto">3</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">SM4-GCM 加密</span></div><div class="st-desc">随机 nonce(12B) + <span class="code">SM4-GCM(DEK, nonce, AAD=entry_id+group_id)</span> → 密文。nonce 每次随机，同样明文两次结果不同。</div></div></div>
+      <div class="step auto"><div class="dot auto">4</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">加 HMAC 防伪章</span></div><div class="st-desc"><span class="code">HMAC-SM3(派生密钥, entry_id|group_id|kv|nonce|ct)</span> → hmac，用来在解密时发现"密文被篡改/回滚"。</div></div></div>
+      <div class="step auto"><div class="dot auto">5</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="actor a-server">→ 服务端</span><span class="st-title">push 密文包</span></div><div class="st-desc">组装 <span class="code">{v, alg, kv, nonce, ct, hmac}</span> 经 TLS1.3 上传。服务端只存密文，不解密、不索引。</div></div></div>
+    </div>
+    <div class="ctrl" data-flow="enc"><button data-act="prev">◀ 上一步</button><button data-act="next" class="primary">下一步 ▶</button><button data-act="play">自动播放</button><span class="dots" data-dots></span><span class="pos" data-pos>1 / 5</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="flow-head"><h3>读取一条密码：解密</h3><div class="ratio"><span class="chip man">人操作 1 步</span><span class="chip auto">后台自动 4 步</span></div></div>
+    <div class="stepper" data-flow="dec">
+      <div class="rail"></div>
+      <div class="step man active"><div class="dot man">1</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-client">你</span><span class="st-title">解锁 → 点击查看条目</span></div><div class="st-desc">解锁时输入 keyfile 口令；之后在树中点开要查看的账号，剩下的都是后台自动。</div></div></div>
+      <div class="step auto"><div class="dot auto">2</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="actor a-server">← 服务端</span><span class="st-title">增量拉取密文 + 信封</span></div><div class="st-desc">按 last_seq 拉取本组变更（SSE 推送或启动自动拉取触发）；服务端只返回密文和信封。</div></div></div>
+      <div class="step auto"><div class="dot auto">3</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">解信封拿 DEK</span></div><div class="st-desc">用 SM2 私钥解自己的信封 → DEK。若密文包的 kv 比本地新（发生过重加密），先拉新信封再解。</div></div></div>
+      <div class="step auto"><div class="dot auto">4</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">验 HMAC 防伪章</span></div><div class="st-desc">HMAC 不符 → 判定密文被篡改/是脏数据，记入 <span class="code">bad_seq</span> 跳过清单不阻塞其他条目；同一 seq 连续 5 次失败则重试一次，仍失败写入本地告警日志并在 UI 标记"该条目同步异常"，需手动处理。</div></div></div>
+      <div class="step auto"><div class="dot auto">5</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">SM4-GCM 解密 → 展示</span></div><div class="st-desc">解出明文（未知字段 <span class="code">json.RawMessage</span> 保留）；明文只在内存，锁屏清零，复制后剪贴板 30 秒自动清空。</div></div></div>
+    </div>
+    <div class="ctrl" data-flow="dec"><button data-act="prev">◀ 上一步</button><button data-act="next" class="primary">下一步 ▶</button><button data-act="play">自动播放</button><span class="dots" data-dots></span><span class="pos" data-pos>1 / 5</span></div>
+  </div>
+
+  <div class="note good"><b>为什么服务端被攻破也不泄露？</b> 服务端只有密文 + 信封。信封要用私钥解（私钥在成员本地、口令保护），密文要用 DEK 解（DEK 也要私钥才拿得到）。拖库 = 一堆没有钥匙的密文。</div>
+</section>
+
+<section id="join">
+  <div class="sec-head"><span class="no">2</span><h2>新人加入 · 无感入伙（auto-wrap）</h2></div>
+  <p class="oneline"><b>一句话：</b>admin 只需要 <b>3 次人操作</b>（生成密钥、建用户加组、转交文件），剩下的密钥交接全部<b>后台自动</b>，新人也就 2 次人操作（导入、输口令）。</p>
+  <div class="panel">
+    <div class="flow-head"><h3>新人加入全程</h3><div class="ratio"><span class="chip man">人操作 5 步</span><span class="chip auto">后台自动 3 步</span></div></div>
+    <div class="stepper" data-flow="join">
+      <div class="rail"></div>
+      <div class="step man active"><div class="dot man">1</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-admin">admin</span><span class="st-title">本机生成密钥（一条命令）</span></div><div class="st-desc"><span class="code">keytool genuser --name 新人</span>：产出 keyfile（私钥）+ pub.json（含注册凭证 attestation）。私钥不经过服务端。</div></div></div>
+      <div class="step man"><div class="dot man">2</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-admin">admin</span><span class="actor a-server">→ 服务端</span><span class="st-title">管理页创建用户</span></div><div class="st-desc">导入 pub.json → <span class="code">POST /admin/users</span>。随后的「校验 attestation、登记公钥」由服务端后台自动完成。</div></div></div>
+      <div class="step man"><div class="dot man">3</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-admin">admin</span><span class="st-title">一键加组</span></div><div class="st-desc"><span class="code">PUT /admin/groups/:gid/members</span>。至此新人已是组成员，但还没有信封（暂时解不了 DEK）。</div></div></div>
+      <div class="step auto"><div class="dot auto">4</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-member">在线成员客户端</span><span class="st-title">auto-wrap：自动包裹信封</span></div><div class="st-desc">SSE 推送 ~1s 内发现 <span class="code">missing_envelopes=[新人]</span> → 用组 DEK 包裹新人的公钥 → <span class="code">POST /groups/:gid/keys</span>（kv 不变，仅追加）。<b>无任何老人手工操作。</b></div></div></div>
+      <div class="step man"><div class="dot man">5</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-admin">admin</span><span class="st-title">线下转交 keyfile</span></div><div class="st-desc">把 keyfile + 口令分两条安全通道转交新人（U 盘 / 加密聊天，口令另走一条）。</div></div></div>
+      <div class="step man"><div class="dot man">6</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-new">新人</span><span class="st-title">导入 keyfile 并解锁</span></div><div class="st-desc">导入 keyfile → 输口令 → 派生 KEK → 解出 SM2 私钥（驻留内存）。</div></div></div>
+      <div class="step auto"><div class="dot auto">7</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-new">新人客户端</span><span class="actor a-server">→ 服务端</span><span class="st-title">设备注册</span></div><div class="st-desc">取 challenge → 私钥签名 → 服务端用登记的公钥验签 → 发 device token。持 keyfile 即证明身份，全程无感。</div></div></div>
+      <div class="step auto"><div class="dot auto">8</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-new">新人客户端</span><span class="st-title">启动自动拉取 → 解密使用</span></div><div class="st-desc">启动即增量拉取 → 拉到自己的信封 → 私钥解出 DEK → 解密组内条目。到这里新人就能正常用了。</div></div></div>
+    </div>
+    <div class="ctrl" data-flow="join"><button data-act="prev">◀ 上一步</button><button data-act="next" class="primary">下一步 ▶</button><button data-act="play">自动播放</button><span class="dots" data-dots></span><span class="pos" data-pos>1 / 8</span></div>
+  </div>
+  <div class="note good"><b>关键点</b>：最核心的「包裹 DEK 信封」这一步（第 4 步）是<b>后台自动</b>完成的——所以加人不需要任何老人在线配合手工操作，新人也不需要懂任何密码学。</div>
+</section>
+
+<section id="leave">
+  <div class="sec-head"><span class="no">3</span><h2>老人退出 · 即时断权 + 自动重加密（auto-rekey）</h2></div>
+  <p class="oneline"><b>一句话：</b>admin 只需 <b>1 次人操作</b>（点一下吊销/移出），其余断权、重加密、删旧信封全部<b>后台自动</b>，被移除者瞬间读不到任何新数据。</p>
+  <div class="panel">
+    <div class="flow-head"><h3>老人退出全程</h3><div class="ratio"><span class="chip man">人操作 1 步</span><span class="chip auto">后台自动 6 步</span></div></div>
+    <div class="stepper" data-flow="leave">
+      <div class="rail"></div>
+      <div class="step man active"><div class="dot man">1</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-admin">admin</span><span class="st-title">一键吊销 / 移出</span></div><div class="st-desc"><span class="code">POST /admin/users/:uid/revoke</span> 或 <span class="code">DELETE /admin/groups/:gid/members/:uid</span>（需输入对象名二次确认）。<b>就这一步需要人。</b></div></div></div>
+      <div class="step auto"><div class="dot auto">2</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-server">服务端</span><span class="st-title">立即断权（单事务）</span></div><div class="st-desc">token 全部失效 + 移除组成员 + <b>删除该成员全部信封</b> + 置 <span class="code">pending_rekey=1</span>。不依赖任何人在线，即刻生效。</div></div></div>
+      <div class="step auto"><div class="dot auto">3</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-member">在线成员客户端</span><span class="st-title">收到通知，检测 pending_rekey</span></div><div class="st-desc">SSE 推送 ~1s 内发现该组待重加密 → 自动进入 auto-rekey 流程。</div></div></div>
+      <div class="step auto"><div class="dot auto">4</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-member">在线成员客户端</span><span class="st-title">写挂起该组新写入</span></div><div class="st-desc"><b>关键不变量</b>：重加密完成前，该组新数据绝不用旧 DEK 加密——新写入只进本地队列，不出网。</div></div></div>
+      <div class="step auto"><div class="dot auto">5</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-member">在线成员客户端</span><span class="st-title">换新 DEK（kv+1）+ 新信封</span></div><div class="st-desc">用旧 DEK 解出全部条目 → <span class="code">crypto/rand</span> 生成新 DEK → 为<b>全部 active 成员</b>包裹新信封 → 上传（服务端升 kv、清 pending_rekey、旧信封暂保留）。</div></div></div>
+      <div class="step auto"><div class="dot auto">6</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-member">在线成员客户端</span><span class="st-title">重加密全部条目并 push</span></div><div class="st-desc">用新 DEK 重加密全部条目（kv+1）→ push。服务端在条目全部换新后<b>物理删除旧 kv 信封</b>；崩溃可续跑。</div></div></div>
+      <div class="step auto"><div class="dot auto">7</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-left">被移除者</span><span class="st-title">从此读不到新数据</span></div><div class="st-desc">后续请求一律 40301/40302；即使手里还留着旧 DEK，也拿不到任何离职后的新密文。</div></div></div>
+    </div>
+    <div class="ctrl" data-flow="leave"><button data-act="prev">◀ 上一步</button><button data-act="next" class="primary">下一步 ▶</button><button data-act="play">自动播放</button><span class="dots" data-dots></span><span class="pos" data-pos>1 / 7</span></div>
+  </div>
+  <div class="note warn"><b>不可违背的两点</b>：① 断权即时——吊销那一刻起旧人连服务端数据都拉不到；② 写挂起——重加密完成前不会产生「用旧 DEK 加密的新数据」外流。全员离线时组写挂起，数据不丢，有人上线自动收敛。</div>
+</section>
+
+<section id="merge">
+  <div class="sec-head"><span class="no">4</span><h2>冲突解决 · 字段级三路合并</h2></div>
+  <p class="oneline"><b>一句话：</b>两个人同时改同一条，不是整条二选一，而是像 Git 一样<b>逐字段三路合并</b>——只有真冲突的字段才需要你点一下。</p>
+  <div class="panel">
+    <div class="flow-head"><h3>冲突处理全程</h3><div class="ratio"><span class="chip auto">后台自动 4 步</span><span class="chip man">人操作最多 1 步</span></div></div>
+    <div class="stepper" data-flow="merge">
+      <div class="rail"></div>
+      <div class="step auto active"><div class="dot auto">1</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">编辑前自动存快照 base</span></div><div class="st-desc">条目进入编辑状态时，若没有快照则存下当前明文（<span class="code">base_enc</span>，KEK 派生密钥加密，本地），作为后续三路合并的"共同祖先"。push 成功后清除；再次编辑同一条目不覆盖。</div></div></div>
+      <div class="step auto"><div class="dot auto">2</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="actor a-server">→ 服务端</span><span class="st-title">push 被拒（40901）= 发现冲突</span></div><div class="st-desc">push 时 <span class="code">base_seq != 服务端当前 seq</span> → 返回 40901 并带上服务端当前版（theirs）。客户端把本地版转成"冲突副本"（ours），以服务端版为当前版。</div></div></div>
+      <div class="step auto"><div class="dot auto">3</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">逐字段三路合并（纯函数）</span></div><div class="st-desc">以 <span class="code">fields</span> 与 <span class="code">custom_fields</span> 每个键为单位对比 base / ours / theirs：<b>仅一方改 → 采用改方</b>；两方都没改 → 保留原值；<b>两方都改且值不同 → 该字段标冲突</b>，其余字段正常合并。</div></div></div>
+      <div class="step man"><div class="dot man">4</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-client">你</span><span class="st-title">只在有冲突字段时：三栏 diff 逐个选</span></div><div class="st-desc">无冲突字段 → 合并结果直接 push（一次成功），<b>你完全无感</b>。有冲突字段 → 进冲突解决页：三栏 diff（base / ours / theirs），每字段「采用本地 / 采用服务端 / 手动编辑」，解决后 push 一次。</div></div></div>
+      <div class="step auto"><div class="dot auto">5</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-client">客户端</span><span class="st-title">push 合并结果</span></div><div class="st-desc">以合并结果为新版本 push；成功后清 base 快照。被其他端删除的本地修改 → 提示"他端已删除此条"，可选丢弃或还原为新条目（新 entry_id 重新发布，避免与墓碑 40903 冲突）。</div></div></div>
+    </div>
+    <div class="ctrl" data-flow="merge"><button data-act="prev">◀ 上一步</button><button data-act="next" class="primary">下一步 ▶</button><button data-act="play">自动播放</button><span class="dots" data-dots></span><span class="pos" data-pos>1 / 5</span></div>
+  </div>
+  <div class="note good"><b>服务端零改动</b>：三路合并全部在客户端完成——base 存在本地、theirs 来自 40901 响应，服务端始终只存一份最新密文。大多数冲突自动合并成功，只有真正的字段冲突才需要人介入。</div>
+</section>
+
+<section id="recover">
+  <div class="sec-head"><span class="no">5</span><h2>keyfile 丢失找回 · 数据不丢</h2></div>
+  <p class="oneline"><b>一句话：</b>keyfile 丢了、口令忘了，admin 重新生成一份新的换绑即可——<b>历史数据一条不丢</b>，全程不需要任何成员手工配合。</p>
+  <div class="panel">
+    <div class="flow-head"><h3>找回全程</h3><div class="ratio"><span class="chip man">人操作 3 步</span><span class="chip auto">后台自动 3 步</span></div></div>
+    <div class="stepper" data-flow="recover">
+      <div class="rail"></div>
+      <div class="step man active"><div class="dot man">1</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-admin">admin</span><span class="st-title">生成新密钥</span></div><div class="st-desc"><span class="code">keytool genuser --name 原用户名</span> → 新 keyfile + pub.json（含新 attestation 注册凭证）。私钥不经过服务端。</div></div></div>
+      <div class="step man"><div class="dot man">2</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-admin">admin</span><span class="actor a-server">→ 服务端</span><span class="st-title">keyfile-reset 换绑公钥</span></div><div class="st-desc"><span class="code">POST /admin/users/:uid/keyfile-reset</span>，携带新公钥 + 新 attestation。服务端<b>校验 attestation</b>（与创建用户相同逻辑），不匹配一律拒收。</div></div></div>
+      <div class="step auto"><div class="dot auto">3</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-server">服务端</span><span class="st-title">单事务：换钥 + 断旧设备</span></div><div class="st-desc">更新公钥 + 作废该用户<b>全部设备</b>（token 全失效）+ 删除其全部信封 + 置所在各组 <span class="code">pending_rekey=1</span>。期间该用户无法登录，直到用新 keyfile 重新注册。</div></div></div>
+      <div class="step auto"><div class="dot auto">4</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-member">在线成员客户端</span><span class="st-title">auto-wrap 新公钥</span></div><div class="st-desc">检测到该用户新公钥无信封 → 用当前 DEK 为新公钥包裹信封（kv 不变，仅追加）。</div></div></div>
+      <div class="step man"><div class="dot man">5</div><div class="st-card"><div class="st-top"><span class="tag man">人操作</span><span class="actor a-new">本人</span><span class="st-title">导入新 keyfile、重新注册设备</span></div><div class="st-desc">导入新 keyfile → 输新口令 → <span class="code">device-challenge</span> + <span class="code">device</span>（用新私钥签名）→ 获得新 token。</div></div></div>
+      <div class="step auto"><div class="dot auto">6</div><div class="st-card"><div class="st-top"><span class="tag auto">后台自动</span><span class="actor a-new">本人客户端</span><span class="actor a-server">→ 服务端</span><span class="st-title">拉取数据，恢复正常使用</span></div><div class="st-desc"><span class="code">GET /sync?since=0</span> → 拉到自己的新信封 → 解出 DEK → 解密全部条目。数据一条不丢。</div></div></div>
+    </div>
+    <div class="ctrl" data-flow="recover"><button data-act="prev">◀ 上一步</button><button data-act="next" class="primary">下一步 ▶</button><button data-act="play">自动播放</button><span class="dots" data-dots></span><span class="pos" data-pos>1 / 6</span></div>
+  </div>
+  <div class="note warn"><b>边角</b>：若找回的同时组里也在 rekey（第 3 步置了 pending_rekey），则 auto-rekey 与 auto-wrap 合并执行——先换新 DEK（kv+1），再为新公钥包裹新 kv 信封。</div>
+</section>
+
+<div class="panel" id="faq" style="margin-top:40px">
+  <div class="sec-head"><span class="no">?</span><h2 style="font-size:18px">常见疑问：多人同时在线的并发</h2></div>
+  <p class="oneline"><b>问：换 DEK 时如果多个成员同时在线，会不会都生成一个新 DEK、互相冲突？</b></p>
+  <div class="hkey" style="margin-top:14px">
+    <div class="hrow"><div class="hbox k2"><div class="t">① 信封层：服务端仲裁</div><div class="d">kv+1 信封集合必须 = 全部 active 成员，且不许覆盖已有信封</div></div></div>
+    <div class="hrow"><div style="height:10px"></div></div>
+    <div class="hrow"><div class="hbox k4"><div class="t">② 条目层：乐观锁 base_seq</div><div class="d">同一条目多人重推 → 40901 → 后者重拉丢弃，内容相同不构成分叉</div></div></div>
+    <div class="hrow"><div style="height:10px"></div></div>
+    <div class="hrow"><div class="hbox k3"><div class="t">③ 收尾：服务端事务内判定</div><div class="d">全部条目到达新 kv → 清 pending_rekey + 删旧信封，谁推完谁触发</div></div></div>
+  </div>
+  <div class="note good" style="margin-top:14px"><b>结论：</b>只有一个成员的新 DEK 会被服务端采纳（其余 40904 后重拉收敛）；条目用乐观锁去重；收尾不依赖具体成员。即使有人崩溃、离线，旧信封保留 + 幂等续跑，最终都收敛到同一个 DEK'。<b>兜底</b>：服务端强制 <span class="code">key_version == 组当前 kv</span>（40902），任何人都不可能用旧 DEK 写出新数据。</div>
+</div>
+
+<div class="panel" id="faq2" style="margin-top:40px">
+  <div class="sec-head"><span class="no">?</span><h2 style="font-size:18px">常见疑问：项目结束 · 断线 · 在线判定</h2></div>
+
+  <p class="oneline"><b>问：项目结束了，组里的数据怎么办？能删掉吗？</b></p>
+  <div class="note good" style="margin-top:14px"><b>答：</b>admin 可以<b>归档组</b>（<span class="code">POST /admin/groups/:gid/archive</span>，需输入组名二次确认）。归档 = <b>协作冻结 + 数据只读</b>：push/信封提交被拒（40905）、SSE 不推送、auto-wrap/auto-rekey 全部冻结；但<b>历史与信封照常可拉</b>（换新设备也能只读查看），成员关系/信封/密文全部保留。期间吊销/移出成员<b>即时断权有效</b>，重加密挂起到重启后自动收敛。要重新启用时 <span class="code">unarchive</span> 一键恢复，客户端检测到状态翻转自动全量拉取补齐。</div>
+
+  <p class="oneline" style="margin-top:22px"><b>问：SSE 断线了怎么办？会不会漏掉变更？</b></p>
+  <div class="note good" style="margin-top:14px"><b>答：</b>不会漏。SSE 只是"有更新的通知"，数据一律以加密拉取为准。断线后客户端<b>指数退避重连</b>（1s→2s→…→30s 封顶）；连续失败 10 次切为<b>轮询模式</b>（30s 间隔），每 5 分钟尝试恢复 SSE，恢复后立即增量拉取补齐。服务端同一 token 的 SSE 断开后 2 秒内不允许重连，防止抖动风暴。好网络下变更 1s 内可见，差网络下最多 30s 内收敛。</div>
+
+  <p class="oneline" style="margin-top:22px"><b>问：管理端怎么判断谁在线？设备要一直开着吗？</b></p>
+  <div class="note good" style="margin-top:14px"><b>答：</b>两种信号互补判定——①<b>SSE 活跃连接</b>：每 15s keepalive，在连接即在线；②<b>心跳</b>：客户端每 30s 上报一次 <span class="code">hostname</span>（<span class="code">POST /auth/heartbeat</span>），服务端更新 <span class="code">last_seen / last_ip / hostname</span>。无 SSE 时 <span class="code">last_seen</span> 在 60s 阈值内也算在线（容忍一次心跳失败）。管理端据此在组成员清单里展示"在线 / 离线 / IP / 机器名"。心跳失败不阻塞客户端主流程，静默重试。</div>
+
+  <p class="oneline" style="margin-top:22px"><b>问：新建的组，第一把 DEK 是谁生成的？</b></p>
+  <div class="note good" style="margin-top:14px"><b>答：</b>admin 建组时只建元数据，不生成 DEK。首个在线成员同步时发现"组内无任何信封"（冷启动）→ 本地 <span class="code">crypto/rand</span> 生成 DEK（kv=1）→ 为全部成员包裹信封上传。多人同时发现时各自生成、服务端只采纳先到的那份（不许覆盖已有信封），后到者重拉收敛——同一套仲裁规则，<b>全程无人手工操作</b>。</div>
+</div>
+
+<footer>基于《在线密码本 · 完整设计文档 v3（无感协同版）五修订》· 零知识 · 国密 SM2/SM3/SM4</footer>
+
+</div>
+<script>
+(function(){
+  function initFlow(root){
+    var stepper = root.closest('.panel').querySelector('.stepper');
+    var steps = stepper.querySelectorAll('.step');
+    var posEl = root.querySelector('[data-pos]');
+    var dotsEl = root.querySelector('[data-dots]');
+    var cur = 0, timer = null;
+    steps.forEach(function(s){ s.classList.remove('active'); });
+    steps[0].classList.add('active');
+    steps.forEach(function(s,i){
+      var d = document.createElement('i');
+      if(i===0) d.className='on';
+      dotsEl.appendChild(d);
+      s.addEventListener('click', function(){ go(i); });
+    });
+    function go(i){
+      cur = (i + steps.length) % steps.length;
+      steps.forEach(function(s,k){ s.classList.toggle('active', k===cur); });
+      dotsEl.querySelectorAll('i').forEach(function(d,k){ d.className = k===cur ? 'on' : ''; });
+      posEl.textContent = (cur+1) + ' / ' + steps.length;
+      steps[cur].scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
+    root.querySelector('[data-act="prev"]').addEventListener('click', function(){ stop(); go(cur-1); });
+    root.querySelector('[data-act="next"]').addEventListener('click', function(){ stop(); go(cur+1); });
+    root.querySelector('[data-act="play"]').addEventListener('click', function(){
+      if(timer){ stop(); return; }
+      this.textContent = '暂停';
+      timer = setInterval(function(){ go(cur+1); }, 1700);
+    });
+    function stop(){
+      if(timer){ clearInterval(timer); timer=null; }
+      var p = root.querySelector('[data-act="play"]'); if(p) p.textContent = '自动播放';
+    }
+  }
+  document.querySelectorAll('.ctrl').forEach(initFlow);
+})();
+</script>
+</body>
+</html>
