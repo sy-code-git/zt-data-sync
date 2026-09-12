@@ -274,7 +274,10 @@ func (s *sqliteStore) GetGroupMember(groupID, userID string) (bool, error) {
 }
 
 func (s *sqliteStore) ListGroupMembers(groupID string) ([]GroupMember, error) {
-	rows, err := s.db.Query(`SELECT group_id, user_id, created_at FROM group_members WHERE group_id = ?`, groupID)
+	rows, err := s.db.Query(`
+		SELECT gm.group_id, gm.user_id, gm.created_at, u.role
+		FROM group_members gm JOIN users u ON u.id = gm.user_id
+		WHERE gm.group_id = ? ORDER BY gm.created_at`, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +285,7 @@ func (s *sqliteStore) ListGroupMembers(groupID string) ([]GroupMember, error) {
 	var out []GroupMember
 	for rows.Next() {
 		var m GroupMember
-		if err := rows.Scan(&m.GroupID, &m.UserID, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.GroupID, &m.UserID, &m.CreatedAt, &m.Role); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

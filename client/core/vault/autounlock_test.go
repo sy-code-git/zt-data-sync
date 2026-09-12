@@ -3,6 +3,8 @@ package vault
 import (
 	"runtime"
 	"testing"
+
+	"passbook/client/core/store"
 )
 
 // TestAutoUnlockRoundTrip 验证自动解锁完整闭环（§9.1，Windows 专属）。
@@ -11,24 +13,32 @@ func TestAutoUnlockRoundTrip(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("自动解锁依赖 Windows DPAPI")
 	}
-	v, path := newTestVault(t)
+	v, _ := newTestVault(t)
 
 	// 初始未开启
 	if v.AutoUnlockEnabled() {
 		t.Fatal("初始不应开启自动解锁")
 	}
 	// 未解锁时开启应失败
-	if err := v.EnableAutoUnlock(path); err == nil {
+	if err := v.EnableAutoUnlock(); err == nil {
 		t.Fatal("未解锁开启自动解锁应失败")
 	}
 
-	// 口令解锁
-	if _, err := v.ImportKeyfile(path, []byte("correct-password-123")); err != nil {
-		t.Fatalf("ImportKeyfile: %v", err)
+	// 生成密钥并入库（identity.KeyfileBlob，自动解锁从库取，无需 keyfile 路径）
+	pub, blob, err := v.GenerateKeypair([]byte("correct-password-123"))
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	if err := v.local.SetIdentity(&store.Identity{Username: "tester", Role: "member", KeyfileBlob: blob, PublicKey: pub}); err != nil {
+		t.Fatalf("SetIdentity: %v", err)
+	}
+	// 解锁态（KEK 入内存）
+	if _, err := v.UnlockWithKeyfileBlob(blob, []byte("correct-password-123")); err != nil {
+		t.Fatalf("UnlockWithKeyfileBlob: %v", err)
 	}
 
 	// 开启自动解锁
-	if err := v.EnableAutoUnlock(path); err != nil {
+	if err := v.EnableAutoUnlock(); err != nil {
 		t.Fatalf("EnableAutoUnlock: %v", err)
 	}
 	if !v.AutoUnlockEnabled() {

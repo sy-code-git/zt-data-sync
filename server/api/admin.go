@@ -347,7 +347,8 @@ func (s *Server) handleAdminGroupMembers(w http.ResponseWriter, r *http.Request)
 			handleErr(w, err)
 			return
 		}
-		info := proto.GroupMemberInfo{UserID: m.UserID, Name: u.Name}
+		// Role 取自 ListGroupMembers 的 users JOIN（§5.2）；前端据此隐藏管理员的移除/吊销按钮
+		info := proto.GroupMemberInfo{UserID: m.UserID, Name: u.Name, Role: m.Role}
 		online := false
 		for i := range devices {
 			d := &devices[i]

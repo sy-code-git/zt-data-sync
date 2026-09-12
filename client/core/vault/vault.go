@@ -102,6 +102,22 @@ func (v *Vault) GenerateKeypair(password []byte) (pubB64 string, blob []byte, er
 	return pubB64, blob, nil
 }
 
+// UnlockWithKeyfileBlobKEK 从库中 keyfile blob + KEK（DPAPI 自动解锁用，§9.1）。
+// 私钥已入库（identity.KeyfileBlob），无需 keyfile 文件路径。
+func (v *Vault) UnlockWithKeyfileBlobKEK(blob, kek []byte) (*store.DeviceState, error) {
+	kf, err := crypto.ParseKeyfile(blob)
+	if err != nil {
+		crypto.Wipe(kek)
+		return nil, err
+	}
+	privDER, err := kf.DecryptPrivateKeyWithKEK(kek)
+	if err != nil {
+		crypto.Wipe(kek)
+		return nil, errors.New("KEK 与私钥不匹配（可能已换 keyfile 或口令修改）")
+	}
+	return v.setUnlocked(kek, privDER)
+}
+
 // UnlockWithKeyfileBlob 从 keyfile blob（本地库 identity 存储）解私钥并设置解锁态。
 // 口令错误或 blob 损坏均返回错误。
 func (v *Vault) UnlockWithKeyfileBlob(blob, password []byte) (*store.DeviceState, error) {
@@ -163,9 +179,9 @@ func (v *Vault) setUnlocked(kek, privDER []byte) (*store.DeviceState, error) {
 	return ds, nil
 }
 
-// EnableAutoUnlock 开启自动解锁（§9.1）：把当前内存 KEK 用 DPAPI 保护后落盘，
-// 并记录 keyfile 路径供下次免口令定位。须处于解锁态（KEK 已在内存）。
-func (v *Vault) EnableAutoUnlock(keyfilePath string) error {
+// EnableAutoUnlock 开启自动解锁（§9.1）：把当前内存 KEK 用 DPAPI 保护后落盘。
+// 私钥已在库（identity.KeyfileBlob），免口令解锁时直接从库取，无需 keyfile 路径。
+func (v *Vault) EnableAutoUnlock() error {
 	v.mu.Lock()
 	if !v.unlocked || len(v.kek) == 0 {
 		v.mu.Unlock()
@@ -182,9 +198,8 @@ func (v *Vault) EnableAutoUnlock(keyfilePath string) error {
 		return err
 	}
 	return v.local.SetAutoUnlock(&store.AutoUnlockConfig{
-		KeyfilePath: keyfilePath,
-		Enabled:     true,
-		KEKBlob:     blob,
+		Enabled: true,
+		KEKBlob: blob,
 	})
 }
 
@@ -206,15 +221,21 @@ func (v *Vault) TryAutoUnlock() (*store.DeviceState, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg == nil || !cfg.Enabled || len(cfg.KEKBlob) == 0 || cfg.KeyfilePath == "" {
+	if cfg == nil || !cfg.Enabled || len(cfg.KEKBlob) == 0 {
 		return nil, errors.New("vault: 未开启自动解锁")
 	}
 	kek, err := dpapiUnprotect(cfg.KEKBlob)
 	if err != nil {
 		return nil, err
 	}
-	// kek 所有权交给 UnlockWithKEK（成功由 vault 持有、失败由其 Wipe，此处不再碰）
-	return v.UnlockWithKEK(cfg.KeyfilePath, kek)
+	// 私钥从本地库 identity 取（已入库），无需 keyfile 文件路径
+	id, err := v.local.GetIdentity()
+	if err != nil || id == nil || len(id.KeyfileBlob) == 0 {
+		crypto.Wipe(kek)
+		return nil, errors.New("vault: 本地无身份私钥")
+	}
+	// kek 所有权交给 UnlockWithKeyfileBlobKEK（成功由 vault 持有、失败由其 Wipe）
+	return v.UnlockWithKeyfileBlobKEK(id.KeyfileBlob, kek)
 }
 
 // Lock 锁定并清零内存密钥（§9.1 自动锁定/手动锁定）。

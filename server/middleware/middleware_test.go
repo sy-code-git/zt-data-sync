@@ -402,6 +402,47 @@ func TestRateLimitHTTP(t *testing.T) {
 	}
 }
 
+// 注册申请面与身份供给面互不挤占配额（§8.3；20 客户端同处一个 NAT 出口 IP 的场景）。
+// 旧实现把 register-request/register-status 与 bootstrap/device-challenge/device 放同一 5/min/IP 桶，
+// 待审客户端的状态轮询会耗尽配额，连带把全团队的注册/登录拒掉（42901）。
+func TestRateLimitRegisterIndependentFromAuth(t *testing.T) {
+	rl := NewRateLimiter(RateConfig{Auth: 2, Register: 3, Sync: 120, Heartbeat: 30, Admin: 30,
+		MaxFail: 10, LockoutFor: 10 * time.Minute}, nil)
+	authH := rl.Middleware(LimitAuth, ClientIP)(okHandler())
+	regH := rl.Middleware(LimitRegister, ClientIP)(okHandler())
+	const ip = "10.0.0.9:1000"
+
+	// 注册面：3 次放行（≈20 客户端 × 2 次/分 的轮询）
+	for i := 0; i < 3; i++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/auth/register-status", nil)
+		req.RemoteAddr = ip
+		regH.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("注册轮询第 %d 次应放行, got %d", i+1, rec.Code)
+		}
+	}
+	// 第 4 次超注册配额
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/auth/register-status", nil)
+	req.RemoteAddr = ip
+	regH.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("注册面超频应 429, got %d", rec.Code)
+	}
+
+	// 同一 IP 的身份供给面配额不被注册面消耗：2 次仍放行（旧实现此处已被连带 42901）
+	for i := 0; i < 2; i++ {
+		recA := httptest.NewRecorder()
+		reqA := httptest.NewRequest(http.MethodPost, "/auth/device-challenge", nil)
+		reqA.RemoteAddr = ip
+		authH.ServeHTTP(recA, reqA)
+		if recA.Code != http.StatusOK {
+			t.Fatalf("身份供给面第 %d 次应放行（不应被注册轮询挤占）, got %d", i+1, recA.Code)
+		}
+	}
+}
+
 func TestRateLimitNilMiddleware(t *testing.T) {
 	// nil RateLimiter → 中间件直接放行
 	var rl *RateLimiter

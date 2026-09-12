@@ -493,6 +493,20 @@ func TestGroupMembersAndDevices(t *testing.T) {
 	if len(m.Members) != 2 {
 		t.Fatalf("成员数 = %d, want 2", len(m.Members))
 	}
+	// 角色必须透出（wire 契约）：前端据 m.role !== 'admin' 隐藏管理员的「移除/吊销」
+	roles := map[string]string{}
+	for _, mb := range m.Members {
+		if mb.Role == "" {
+			t.Fatalf("成员 %s 缺 role 字段（前端将误判为非管理员）", mb.UserID)
+		}
+		roles[mb.UserID] = mb.Role
+	}
+	if roles[f.adminUser] != "admin" {
+		t.Fatalf("管理员成员 role = %q, want admin", roles[f.adminUser])
+	}
+	if roles[memID] != "member" {
+		t.Fatalf("普通成员 role = %q, want member", roles[memID])
+	}
 	// 设备列表
 	d := decodeBody[proto.DevicesResponse](t, f.do(t, http.MethodGet, "/admin/devices", f.adminToken, nil))
 	if len(d.Devices) < 2 {

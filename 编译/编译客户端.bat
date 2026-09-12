@@ -1,40 +1,41 @@
 @echo off
+chcp 65001 >nul
 setlocal
 rem ============================================================
-rem  ±àÒë¿Í»§¶Ë²úÎï£¨GUI ¿Í»§¶Ë + Ô¿³×¹¤¾ß + ÃÜÂë±¾ÃüÁîÐÐ£©
-rem  ²úÎïÊä³öµ½ ±àÒë\¿Í»§¶Ë²úÎï\
+rem  ç¼–è¯‘å®¢æˆ·ç«¯äº§ç‰©ï¼ˆGUI å®¢æˆ·ç«¯ + é’¥åŒ™å·¥å…· + å¯†ç æœ¬å‘½ä»¤è¡Œï¼‰
+rem  äº§ç‰©è¾“å‡ºåˆ° ç¼–è¯‘\å®¢æˆ·ç«¯äº§ç‰©\
 rem ============================================================
 set "ROOT=%~dp0.."
 cd /d "%ROOT%"
 
-if not exist "±àÒë\¿Í»§¶Ë²úÎï" mkdir "±àÒë\¿Í»§¶Ë²úÎï"
+if not exist "ç¼–è¯‘\å®¢æˆ·ç«¯äº§ç‰©" mkdir "ç¼–è¯‘\å®¢æˆ·ç«¯äº§ç‰©"
 
-echo [1/3] ±àÒë GUI ¿Í»§¶Ë£¨wails build£©...
+echo [1/3] ç¼–è¯‘ GUI å®¢æˆ·ç«¯ï¼ˆwails buildï¼‰...
 cd /d "%ROOT%\client\app"
 call wails build
 if errorlevel 1 (
-    echo [´íÎó] GUI ¿Í»§¶Ë±àÒëÊ§°Ü
+    echo [é”™è¯¯] GUI å®¢æˆ·ç«¯ç¼–è¯‘å¤±è´¥
     exit /b 1
 )
 
 cd /d "%ROOT%"
-echo [2/3] ±àÒë Ô¿³×¹¤¾ß£¨keytool£©...
-go build -trimpath -ldflags "-s -w" -o "±àÒë\¿Í»§¶Ë²úÎï\Ô¿³×¹¤¾ß.exe" ./cmd/keytool
+echo [2/3] ç¼–è¯‘ é’¥åŒ™å·¥å…·ï¼ˆkeytoolï¼‰...
+go build -trimpath -ldflags "-s -w" -o "ç¼–è¯‘\å®¢æˆ·ç«¯äº§ç‰©\é’¥åŒ™å·¥å…·.exe" ./cmd/keytool
 if errorlevel 1 (
-    echo [´íÎó] keytool ±àÒëÊ§°Ü
+    echo [é”™è¯¯] keytool ç¼–è¯‘å¤±è´¥
     exit /b 1
 )
 
-echo [3/3] ±àÒë ÃÜÂë±¾ÃüÁîÐÐ£¨pbcli£©...
-go build -trimpath -ldflags "-s -w" -o "±àÒë\¿Í»§¶Ë²úÎï\ÃÜÂë±¾ÃüÁîÐÐ.exe" ./cmd/pbcli
+echo [3/3] ç¼–è¯‘ å¯†ç æœ¬å‘½ä»¤è¡Œï¼ˆpbcliï¼‰...
+go build -trimpath -ldflags "-s -w" -o "ç¼–è¯‘\å®¢æˆ·ç«¯äº§ç‰©\å¯†ç æœ¬å‘½ä»¤è¡Œ.exe" ./cmd/pbcli
 if errorlevel 1 (
-    echo [´íÎó] pbcli ±àÒëÊ§°Ü
+    echo [é”™è¯¯] pbcli ç¼–è¯‘å¤±è´¥
     exit /b 1
 )
 
-rem ¸´ÖÆ wails ²úÎï²¢ÖØÃüÃûÎªÖÐÎÄ
-copy /y "client\app\build\bin\app.exe" "±àÒë\¿Í»§¶Ë²úÎï\ÔÚÏßÃÜÂë±¾.exe" >nul
+rem å¤åˆ¶ wails äº§ç‰©å¹¶é‡å‘½åä¸ºä¸­æ–‡
+copy /y "client\app\build\bin\app.exe" "ç¼–è¯‘\å®¢æˆ·ç«¯äº§ç‰©\åœ¨çº¿å¯†ç æœ¬.exe" >nul
 
 echo.
-echo ¿Í»§¶Ë±àÒëÍê³É£¬²úÎïÔÚ ±àÒë\¿Í»§¶Ë²úÎï\
+echo å®¢æˆ·ç«¯ç¼–è¯‘å®Œæˆï¼Œäº§ç‰©åœ¨ ç¼–è¯‘\å®¢æˆ·ç«¯äº§ç‰©\
 endlocal

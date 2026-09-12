@@ -5,9 +5,13 @@ import {api} from '../models';
 
 export function AdminAddMember(arg1:string,arg2:string):Promise<void>;
 
+export function AdminApproveRegisterRequest(arg1:string,arg2:string):Promise<void>;
+
 export function AdminArchiveGroup(arg1:string,arg2:string):Promise<void>;
 
 export function AdminCreateGroup(arg1:string):Promise<string>;
+
+export function AdminCreateInvite(arg1:string,arg2:boolean,arg3:number):Promise<proto.InviteOut>;
 
 export function AdminCreateUser(arg1:string,arg2:string,arg3:string):Promise<string>;
 
@@ -15,9 +19,15 @@ export function AdminListDevices():Promise<Array<proto.AdminDevice>>;
 
 export function AdminListGroups():Promise<Array<proto.GroupInfo>>;
 
+export function AdminListInvites():Promise<Array<proto.InviteOut>>;
+
 export function AdminListMembers(arg1:string):Promise<Array<proto.GroupMemberInfo>>;
 
+export function AdminListRegisterRequests(arg1:string):Promise<Array<proto.RegisterRequestOut>>;
+
 export function AdminListUsers():Promise<Array<proto.UserInfo>>;
+
+export function AdminRejectRegisterRequest(arg1:string):Promise<void>;
 
 export function AdminRemoveMember(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -28,6 +38,8 @@ export function AdminUnarchiveGroup(arg1:string):Promise<void>;
 export function AutoUnlockEnabled():Promise<boolean>;
 
 export function Bootstrap(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
+
+export function ClearIdentity():Promise<void>;
 
 export function DataDir():Promise<string>;
 
@@ -70,6 +82,10 @@ export function OpenFileDialog(arg1:string):Promise<string>;
 export function PutEntry(arg1:api.PutEntryRequest):Promise<void>;
 
 export function RegisterDevice(arg1:string,arg2:string):Promise<void>;
+
+export function RegisterRequest(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
+export function RegisterStatus(arg1:string):Promise<string>;
 
 export function ResolveConflict(arg1:string,arg2:boolean,arg3:Array<number>):Promise<void>;
 

@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>在线密码本 · 客户端原型</title>
+<style>
+:root{
+  --font-sans:"HarmonyOS Sans SC","MiSans","Microsoft YaHei UI","PingFang SC","Segoe UI",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Code",Consolas,monospace;
+  --radius-sm:8px;--radius-md:12px;--radius-lg:18px;
+  --dur:.24s;--ease:cubic-bezier(.22,1,.36,1);
+}
+:root[data-theme="dark"]{
+  --bg-base:#070b14;--bg-grad-a:#0b1226;--bg-grad-b:#070b14;--bg-grad-c:#0a1a33;
+  --glass-bg:rgba(255,255,255,.055);--glass-bg-strong:rgba(255,255,255,.09);
+  --glass-border:rgba(255,255,255,.1);--glass-border-strong:rgba(255,255,255,.18);
+  --text-1:#eef3fb;--text-2:rgba(238,243,251,.72);--text-3:rgba(238,243,251,.45);
+  --accent:#38bdf8;--accent-2:#22d3ee;--accent-grad:linear-gradient(135deg,#38bdf8 0%,#22d3ee 100%);--accent-soft:rgba(56,189,248,.14);
+  --success:#34d399;--warning:#fbbf24;--danger:#f87171;--info:#60a5fa;
+  --success-soft:rgba(52,211,153,.14);--warning-soft:rgba(251,191,36,.14);--danger-soft:rgba(248,113,113,.14);
+  --shadow-md:0 8px 32px rgba(0,0,0,.45);--shadow-glow:0 0 40px rgba(56,189,248,.12);
+  --input-bg:rgba(255,255,255,.06);--hover:rgba(255,255,255,.09);--active:rgba(255,255,255,.13);
+  --scroll-thumb:rgba(255,255,255,.16);--scroll-thumb-hover:rgba(255,255,255,.28);
+}
+:root[data-theme="light"]{
+  --bg-base:#f2f5fb;--bg-grad-a:#fff;--bg-grad-b:#eef2f9;--bg-grad-c:#e6f0fb;
+  --glass-bg:rgba(255,255,255,.62);--glass-bg-strong:rgba(255,255,255,.82);
+  --glass-border:rgba(15,23,42,.09);--glass-border-strong:rgba(15,23,42,.16);
+  --text-1:#0f1c2e;--text-2:rgba(15,28,46,.66);--text-3:rgba(15,28,46,.4);
+  --accent:#0284c7;--accent-2:#0ea5e9;--accent-grad:linear-gradient(135deg,#0284c7 0%,#0ea5e9 100%);--accent-soft:rgba(2,132,199,.1);
+  --success:#059669;--warning:#d97706;--danger:#dc2626;--info:#2563eb;
+  --success-soft:rgba(5,150,105,.1);--warning-soft:rgba(217,119,6,.1);--danger-soft:rgba(220,38,38,.1);
+  --shadow-md:0 8px 28px rgba(15,23,42,.1);--shadow-glow:0 0 36px rgba(14,165,233,.14);
+  --input-bg:rgba(255,255,255,.75);--hover:rgba(15,23,42,.055);--active:rgba(15,23,42,.09);
+  --scroll-thumb:rgba(15,23,42,.2);--scroll-thumb-hover:rgba(15,23,42,.32);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--font-sans);color:var(--text-1);background:var(--bg-base);-webkit-font-smoothing:antialiased;overflow:hidden;font-size:14px;line-height:1.6}
+button{font-family:inherit;border:none;background:none;color:inherit;cursor:pointer}
+input,textarea,select{font-family:inherit;color:inherit;font-size:14px}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:99px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* 通用组件 */
+.pb-glass{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--radius-lg);backdrop-filter:blur(22px) saturate(150%);box-shadow:var(--shadow-md),var(--shadow-glow)}
+.pb-glass--strong{background:var(--glass-bg-strong);border:1px solid var(--glass-border-strong)}
+.pb-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 20px;border-radius:var(--radius-md);font-size:14px;font-weight:600;transition:all var(--dur) var(--ease);white-space:nowrap;border:1px solid transparent}
+.pb-btn:disabled{opacity:.5;cursor:not-allowed}
+.pb-btn--primary{background:var(--accent-grad);color:#fff;box-shadow:0 4px 18px rgba(56,189,248,.28)}
+.pb-btn--primary:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.06)}
+.pb-btn--ghost{background:var(--glass-bg);border-color:var(--glass-border);color:var(--text-1)}
+.pb-btn--ghost:hover{background:var(--hover);border-color:var(--glass-border-strong)}
+.pb-btn--danger{background:var(--danger-soft);border-color:rgba(248,113,113,.35);color:var(--danger)}
+.pb-btn--sm{height:32px;padding:0 14px;font-size:13px;border-radius:var(--radius-sm)}
+.pb-btn--lg{height:46px;padding:0 28px;font-size:15px}
+.pb-btn--block{width:100%}
+.pb-iconbtn{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);color:var(--text-2);transition:all var(--dur) var(--ease);font-size:15px}
+.pb-iconbtn:hover{background:var(--hover);color:var(--text-1)}
+.pb-field{display:flex;flex-direction:column;gap:6px}
+.pb-label{font-size:13px;font-weight:600;color:var(--text-2);letter-spacing:.02em}
+.pb-input{width:100%;height:40px;padding:0 14px;border-radius:var(--radius-md);background:var(--input-bg);border:1px solid var(--glass-border);color:var(--text-1);font-size:14px;transition:all var(--dur) var(--ease)}
+.pb-input::placeholder{color:var(--text-3)}
+.pb-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.pb-input:disabled{opacity:.55;cursor:not-allowed}
+.pb-input--mono{font-family:var(--font-mono);font-size:13px}
+.pb-input--lg{height:46px;font-size:15px}
+.pb-input-group{position:relative;display:flex;align-items:center}
+.pb-input-group .pb-input{padding-right:44px}
+.pb-input-group__action{position:absolute;right:6px;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);color:var(--text-3);transition:all var(--dur) var(--ease)}
+.pb-input-group__action:hover{color:var(--text-1);background:var(--hover)}
+.pb-badge{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.pb-badge--success{background:var(--success-soft);color:var(--success)}
+.pb-badge--warning{background:var(--warning-soft);color:var(--warning)}
+.pb-badge--danger{background:var(--danger-soft);color:var(--danger)}
+.pb-badge--neutral{background:var(--glass-bg-strong);color:var(--text-2);border:1px solid var(--glass-border)}
+.pb-badge--accent{background:var(--accent-soft);color:var(--accent)}
+.pb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block}
+.pb-dot--ok{background:var(--success);box-shadow:0 0 8px var(--success)}
+.pb-dot--warn{background:var(--warning);box-shadow:0 0 8px var(--warning)}
+.pb-dot--err{background:var(--danger);box-shadow:0 0 8px var(--danger)}
+.pb-dot--idle{background:var(--text-3)}
+.pb-divider{height:1px;background:var(--glass-border);border:none;margin:0}
+.pb-mono{font-family:var(--font-mono)}
+.pb-muted{color:var(--text-3)}
+.pb-subtle{color:var(--text-2)}
+.pb-sm{font-size:12.5px}
+.pb-xs{font-size:11.5px}
+.pb-bold{font-weight:700}
+.pb-truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb-fill{flex:1;min-width:0}
+.pb-center{display:flex;align-items:center;justify-content:center}
+.pb-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:56px 24px;color:var(--text-3);text-align:center}
+.pb-empty__icon{font-size:42px;opacity:.7}
+.pb-empty__title{font-size:15px;font-weight:600;color:var(--text-2)}
+.pb-empty__desc{font-size:13px;max-width:320px;line-height:1.7}
+.pb-spinner{width:18px;height:18px;border:2px solid var(--glass-border-strong);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;display:inline-block;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pop{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.pb-modal-mask{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(4,8,16,.55);backdrop-filter:blur(6px);animation:fade var(--dur) var(--ease)}
+.pb-modal{width:min(520px,calc(100vw-64px));max-height:calc(100vh-96px);display:flex;flex-direction:column;animation:pop .28s var(--ease)}
+.pb-modal__head{display:flex;align-items:center;justify-content:space-between;padding:20px 24px 0}
+.pb-modal__title{font-size:16px;font-weight:700}
+.pb-modal__body{padding:20px 24px;overflow-y:auto;color:var(--text-2);display:flex;flex-direction:column;gap:16px}
+.pb-modal__foot{display:flex;justify-content:flex-end;gap:10px;padding:0 24px 20px}
+.pb-toast-wrap{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:10px;align-items:center;pointer-events:none}
+.pb-toast{display:flex;align-items:center;gap:10px;padding:11px 18px;border-radius:var(--radius-md);background:var(--glass-bg-strong);border:1px solid var(--glass-border-strong);box-shadow:var(--shadow-md);font-size:13.5px;font-weight:500;color:var(--text-1);animation:pop .3s var(--ease);pointer-events:auto}
+.pb-toast--success{border-color:rgba(52,211,153,.45)}
+.pb-toast--error{border-color:rgba(248,113,113,.45)}
+.pb-toast--warn{border-color:rgba(251,191,36,.45)}
+
+/* 外壳 / 标题栏 */
+.shell{position:relative;height:100vh;overflow:hidden;display:flex;flex-direction:column;background:linear-gradient(160deg,var(--bg-grad-a) 0%,var(--bg-grad-b) 48%,var(--bg-grad-c) 100%)}
+.bg-glow{position:absolute;border-radius:50%;filter:blur(90px);pointer-events:none;z-index:0}
+.bg-glow--a{width:520px;height:520px;top:-180px;right:-120px;background:radial-gradient(circle,var(--accent) 0%,transparent 68%);opacity:.16}
+.bg-glow--b{width:460px;height:460px;bottom:-160px;left:-120px;background:radial-gradient(circle,var(--accent-2) 0%,transparent 66%);opacity:.13}
+.bg-grid{position:absolute;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(var(--glass-border) 1px,transparent 1px),linear-gradient(90deg,var(--glass-border) 1px,transparent 1px);background-size:48px 48px;-webkit-mask-image:radial-gradient(ellipse at 50% 30%,rgba(0,0,0,.5),transparent 70%);mask-image:radial-gradient(ellipse at 50% 30%,rgba(0,0,0,.5),transparent 70%)}
+.titlebar{position:relative;z-index:10;height:44px;display:flex;align-items:center;padding-left:16px;border-bottom:1px solid var(--glass-border);background:var(--glass-bg);backdrop-filter:blur(18px) saturate(140%);user-select:none;flex-shrink:0}
+.titlebar__brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;letter-spacing:.02em}
+.titlebar__logo{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;background:var(--accent-grad);color:#fff;font-size:12px;box-shadow:0 2px 10px rgba(56,189,248,.4)}
+.titlebar__tag{font-size:11px;font-weight:500;color:var(--text-3);letter-spacing:.06em;margin-left:4px}
+.titlebar__drag{flex:1;height:100%}
+.titlebar__controls{display:flex;align-items:center;gap:2px;padding-right:8px}
+.titlebar__btn{width:40px;height:32px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;font-size:13px;color:var(--text-2);transition:all var(--dur) var(--ease)}
+.titlebar__btn:hover{background:var(--hover);color:var(--text-1)}
+.titlebar__btn--close:hover{background:#e11d48;color:#fff}
+.autolock-bar{position:relative;z-index:10;display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 12px;font-size:12.5px;color:var(--warning);background:var(--glass-bg);border-bottom:1px solid var(--glass-border)}
+.stage{position:relative;z-index:1;flex:1;min-height:0;display:flex;flex-direction:column}
+.stage-boot{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--text-3);font-size:13.5px}
+
+/* ============ 解锁页 ============ */
+.unlock{flex:1;min-height:0;overflow:hidden;display:grid;grid-template-columns:1.1fr 1fr}
+.unlock__left{overflow-y:auto;display:flex;align-items:center;justify-content:center;padding:48px}
+.unlock__hero{max-width:400px;display:flex;flex-direction:column;gap:8px;animation:pop .4s var(--ease)}
+.unlock__logo{width:56px;height:56px;display:flex;align-items:center;justify-content:center;font-size:26px;border-radius:16px;background:var(--accent-grad);box-shadow:0 8px 30px rgba(56,189,248,.35);margin-bottom:12px}
+.unlock__title{font-size:32px;font-weight:800;letter-spacing:.01em}
+.unlock__subtitle{font-size:15px;color:var(--text-2);margin-bottom:20px}
+.unlock__feats{list-style:none;display:flex;flex-direction:column;gap:10px;font-size:13.5px;color:var(--text-2)}
+.unlock__feats li{display:flex;align-items:center;gap:10px}
+.feat-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);flex-shrink:0}
+.unlock__right{overflow-y:auto;display:flex;align-items:flex-start;justify-content:center;padding:32px}
+.unlock__card{margin:auto;width:100%;max-width:440px;padding:32px;display:flex;flex-direction:column;gap:16px;animation:pop .34s var(--ease)}
+.unlock__card-head{display:flex;align-items:center;justify-content:space-between}
+.unlock__card-head h2{font-size:19px;font-weight:700}
+.unlock__section{display:flex;flex-direction:column;gap:10px}
+.unlock__section-title{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:600;color:var(--text-2)}
+.unlock__saved-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-md);background:var(--glass-bg);border:1px solid var(--glass-border);font-size:13px}
+.unlock__input-row{display:flex;gap:8px}
+.unlock__input-row .pb-input{flex:1}
+.unlock__hint{font-size:12px;color:var(--text-3);line-height:1.6}
+.unlock__tip{display:flex;align-items:flex-start;gap:8px;font-size:13px;padding:10px 12px;border-radius:var(--radius-md);line-height:1.6;word-break:break-all}
+.unlock__tip--info{background:var(--accent-soft);color:var(--accent)}
+.unlock__tip--ok{background:var(--success-soft);color:var(--success)}
+.unlock__tip--err{background:var(--danger-soft);color:var(--danger)}
+.unlock__skip{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;padding:2px 0}
+.unlock__import{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--radius-md);border:1px dashed var(--glass-border-strong)}
+.unlock__foot{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:var(--text-3)}
+.unlock__pub{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:var(--radius-md);background:var(--glass-bg);border:1px solid var(--glass-border)}
+.unlock__readonly{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-radius:var(--radius-md);background:var(--glass-bg);border:1px solid var(--glass-border);min-width:0}
+.unlock__pub-row{display:flex;align-items:center;gap:8px;font-size:12px}
+.unlock__autounlock{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px;border-radius:var(--radius-md);border:1px dashed var(--glass-border-strong)}
+.unlock__seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:var(--radius-md);background:var(--input-bg);border:1px solid var(--glass-border)}
+.unlock__seg button{height:34px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;color:var(--text-2);transition:all var(--dur) var(--ease)}
+.unlock__seg button.on{background:var(--accent-soft);color:var(--accent)}
+.unlock__seg button:not(.on):hover{background:var(--hover);color:var(--text-1)}
+.unlock__regtabs{display:flex;gap:6px;margin-top:2px}
+.unlock__regtabs button{height:28px;padding:0 12px;border-radius:99px;font-size:12.5px;color:var(--text-2);border:1px solid var(--glass-border);background:var(--glass-bg);transition:all var(--dur) var(--ease)}
+.unlock__regtabs button.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.unlock__regresult{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:var(--radius-md);border:1px solid var(--glass-border);background:var(--glass-bg)}
+.unlock__regresult--ok{border-color:rgba(52,211,153,.4);background:var(--success-soft)}
+.unlock__regresult--wait{border-color:rgba(251,191,36,.4);background:var(--warning-soft)}
+.unlock__pubkey-box{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--radius-md);background:var(--input-bg);border:1px dashed var(--glass-border-strong)}
+.unlock__pubkey-text{font-family:var(--font-mono);font-size:11.5px;word-break:break-all;color:var(--text-2);line-height:1.5}
+.unlock__skip-row{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+.unlock__modal-mask{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+.unlock__modal{width:min(560px,92vw);max-height:86vh;overflow-y:auto;padding:20px;border-radius:12px;display:flex;flex-direction:column;gap:14px;animation:pop .3s var(--ease)}
+.unlock__modal-title{margin:0 0 6px;font-size:16px;font-weight:700}
+.unlock__modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+
+/* ============ 列表页 ============ */
+.list-view{flex:1;min-height:0;display:flex;flex-direction:column;padding:16px;gap:14px}
+.list-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}
+.list-toolbar__left{display:flex;flex:1}
+.list-toolbar__right{display:flex;align-items:center;gap:8px}
+.list-search{position:relative;width:min(420px,100%)}
+.list-search__icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--text-3);font-size:15px;pointer-events:none}
+.list-search__input{width:100%;height:38px;padding:0 14px 0 36px;border-radius:var(--radius-md);background:var(--input-bg);border:1px solid var(--glass-border);color:var(--text-1);font-size:13.5px;transition:all var(--dur) var(--ease)}
+.list-search__input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.list-search__clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:22px;height:22px;display:none;align-items:center;justify-content:center;border-radius:50%;color:var(--text-3);font-size:12px}
+.list-search__clear:hover{background:var(--active);color:var(--text-1)}
+.list-search--filled .list-search__clear{display:inline-flex}
+.list-body{flex:1;min-height:0;display:grid;grid-template-columns:320px 1fr;gap:14px}
+.list-tree{display:flex;flex-direction:column;min-height:0}
+.pb-glass--flat{box-shadow:none;backdrop-filter:blur(10px)}
+.list-pane-title{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;font-size:13px;font-weight:700;letter-spacing:.03em;flex-shrink:0}
+.list-tree__scroll{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 12px}
+.pb-tree-node{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:var(--radius-sm);cursor:pointer;transition:all var(--dur) var(--ease);color:var(--text-2);font-size:13.5px;white-space:nowrap;position:relative}
+.pb-tree-node:hover{background:var(--hover);color:var(--text-1)}
+.pb-tree-node--active{background:var(--accent-soft);color:var(--text-1)}
+.pb-tree-node--active::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:3px;border-radius:2px;background:var(--accent)}
+.pb-tree-node__quick{display:none;width:22px;height:22px;align-items:center;justify-content:center;border-radius:6px;font-size:12px;color:var(--text-3);flex-shrink:0}
+.pb-tree-node:hover .pb-tree-node__quick{display:inline-flex}
+.pb-tree-node__quick:hover{background:var(--active);color:var(--accent)}
+.pb-tree-node--branch{font-weight:600;color:var(--text-1)}
+.pb-tree-node--root{margin-top:6px}
+.pb-tree-node--root:first-child{margin-top:0}
+.pb-tree-node__arrow{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;transition:transform var(--dur) var(--ease),background var(--dur) var(--ease);color:var(--text-3);font-size:10px;flex-shrink:0;border-radius:4px}
+.pb-tree-node__arrow:hover{background:var(--active);color:var(--accent)}
+.pb-tree-node__arrow--open{transform:rotate(90deg)}
+.pb-tree-node__arrow--leaf{visibility:hidden}
+.pb-tree-node__icon{font-size:15px;flex-shrink:0}
+.pb-tree-node--leaf .pb-tree-node__icon{font-size:10px;opacity:.55;width:15px;text-align:center}
+.pb-tree-children{position:relative}
+.pb-tree-children::before{content:'';position:absolute;left:20px;top:0;bottom:6px;width:1px;background:var(--glass-border-strong)}
+.pb-tree-node--leaf{font-size:13px}
+.list-detail{min-height:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:14px}
+.detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.detail-head__title{display:flex;align-items:center;gap:12px}
+.detail-head__icon{font-size:22px}
+.detail-head__title h2{font-size:20px;font-weight:700}
+.detail-head__badges{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.detail-meta{letter-spacing:.02em}
+.detail-field{display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:center;padding:10px 12px;border-radius:var(--radius-md);background:var(--glass-bg);border:1px solid var(--glass-border)}
+.detail-field__label{font-size:12.5px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
+.detail-field__value{display:flex;align-items:center;gap:8px;min-width:0}
+.detail-field__reveal{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:var(--text-3);font-size:13px;flex-shrink:0}
+.detail-field__reveal:hover{background:var(--active);color:var(--text-1)}
+.detail-children{display:flex;flex-direction:column;gap:6px}
+.detail-child{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-md);background:var(--glass-bg);border:1px solid var(--glass-border);font-size:13.5px}
+.detail-actions{display:flex;gap:10px;flex-wrap:wrap}
+
+/* ============ 编辑页 ============ */
+.edit-view{flex:1;min-height:0;overflow-y:auto;padding:24px;display:flex;justify-content:center}
+.edit-card{width:100%;max-width:560px;height:fit-content;display:flex;flex-direction:column;padding:20px 24px;gap:14px;animation:pop .28s var(--ease)}
+.edit-head{display:flex;align-items:center;gap:10px}
+.edit-head h2{font-size:17px;font-weight:700}
+.edit-body{display:flex;flex-direction:column;gap:14px}
+.edit-error{padding:10px 12px;border-radius:var(--radius-md);background:var(--danger-soft);color:var(--danger);font-size:13px}
+.edit-note{padding:16px;border-radius:var(--radius-md);background:var(--glass-bg);border:1px dashed var(--glass-border-strong);text-align:center;color:var(--text-2);font-size:13.5px}
+
+/* ============ 设置页 ============ */
+.settings{flex:1;min-height:0;display:flex;flex-direction:column;padding:16px;gap:14px}
+.settings-head{display:flex;align-items:center;gap:16px;flex-shrink:0}
+.settings-head h2{font-size:19px;font-weight:700}
+.settings-body{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-bottom:2px}
+.settings-card{display:flex;flex-direction:column;gap:14px;padding:18px 20px;flex-shrink:0;border-radius:var(--radius-lg);background:var(--glass-bg);border:1px solid var(--glass-border)}
+.settings-card__head{display:flex;align-items:flex-start;gap:12px}
+.settings-card__icon{font-size:20px;line-height:1.4}
+.settings-card__head h3{font-size:15px;font-weight:700}
+.settings-card__body{display:flex;flex-direction:column;gap:12px;padding-left:32px}
+.settings-row{display:flex;gap:8px}
+.settings-row .pb-input{flex:1}
+.settings-tip{font-size:13px;padding:9px 12px;border-radius:var(--radius-md);line-height:1.6;word-break:break-all}
+.settings-tip--info{background:var(--accent-soft);color:var(--accent)}
+.settings-tip--ok{background:var(--success-soft);color:var(--success)}
+.settings-tip--err{background:var(--danger-soft);color:var(--danger)}
+.settings-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.settings-syncmode{display:flex;flex-direction:column;gap:8px}
+.settings-syncmode__options{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.settings-syncmode__opt{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:var(--radius-md);border:1px solid var(--glass-border);background:var(--glass-bg);cursor:pointer;transition:border-color .15s,background .15s}
+.settings-syncmode__opt.on{border-color:var(--accent);background:var(--accent-soft)}
+.settings-syncmode__opt input{cursor:pointer}
+.settings-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.settings-stat{display:flex;flex-direction:column;gap:2px;padding:12px;border-radius:var(--radius-md);background:var(--glass-bg);border:1px solid var(--glass-border)}
+.settings-stat__val{font-size:18px;font-weight:700;font-family:var(--font-mono)}
+.settings-stat__label{font-size:11.5px;color:var(--text-3)}
+.settings-stat--warn .settings-stat__val{color:var(--warning)}
+.settings-stat--danger .settings-stat__val{color:var(--danger)}
+.settings-theme{display:flex;gap:10px}
+.settings-theme__opt{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;border-radius:var(--radius-md);border:1px solid var(--glass-border);background:var(--glass-bg);font-size:13px;font-weight:600;transition:all var(--dur) var(--ease)}
+.settings-theme__opt:hover{border-color:var(--glass-border-strong)}
+.settings-theme__opt--active{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.settings-theme__swatch{width:44px;height:30px;display:flex;align-items:center;justify-content:center;font-size:15px;border-radius:var(--radius-sm);border:1px solid var(--glass-border)}
+.settings-theme__swatch--dark{background:linear-gradient(135deg,#0b1226 0%,#0a1a33 100%);color:#38bdf8}
+.settings-theme__swatch--light{background:linear-gradient(135deg,#fff 0%,#e6f0fb 100%);color:#0284c7}
+.settings-info-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px dashed var(--glass-border)}
+.settings-info-row__label{font-size:12.5px;font-weight:600;color:var(--text-2);flex-shrink:0}
+.settings-info-row--col{align-items:flex-start;flex-direction:column;gap:6px}
+.settings-autounlock{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px}
+
+/* ============ 冲突解决页 ============ */
+.conflict{flex:1;min-height:0;display:flex;flex-direction:column;padding:16px;gap:14px}
+.conflict-head{display:flex;align-items:center;gap:16px;flex-shrink:0}
+.conflict-head__title{display:flex;align-items:center;gap:12px;flex:1}
+.conflict-head__icon{font-size:22px}
+.conflict-head h2{font-size:19px;font-weight:700}
+.conflict-cols{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;overflow-y:auto;padding-bottom:2px}
+.conflict-col{display:flex;flex-direction:column;min-height:0;border-radius:var(--radius-lg);background:var(--glass-bg);border:1px solid var(--glass-border)}
+.conflict-col__head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;flex-shrink:0}
+.conflict-col__body{flex:1;overflow-y:auto;padding:0 12px 14px;display:flex;flex-direction:column;gap:6px}
+.conflict-col__title{font-size:15px;font-weight:700;padding:6px 6px 10px;border-bottom:1px solid var(--glass-border);margin-bottom:4px}
+.conflict-col__title--diff{border-bottom-color:rgba(251,191,36,.5)}
+.conflict-col__field{display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-radius:var(--radius-sm);border:1px solid transparent;font-size:12.5px;word-break:break-all}
+.conflict-col__key{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
+.conflict-col__field--diff{border-color:rgba(251,191,36,.45);background:var(--warning-soft)}
+.conflict-resolve{display:flex;flex-direction:column;gap:10px;padding:14px 16px;flex-shrink:0;max-height:40vh;overflow-y:auto;border-radius:var(--radius-lg);background:var(--glass-bg);border:1px solid var(--glass-border)}
+.conflict-resolve__head{display:flex;align-items:center;justify-content:space-between;font-size:14px}
+.conflict-resolve__quick{display:flex;gap:8px}
+.conflict-resolve__row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.conflict-resolve__key{font-size:12.5px;font-weight:700;min-width:90px;color:var(--text-2);word-break:break-all}
+.conflict-resolve__opts{display:flex;gap:8px;flex-wrap:wrap}
+.conflict-resolve__active{border-color:var(--accent)!important;box-shadow:0 0 0 2px var(--accent-soft)}
+.conflict-resolve__input{flex:1;min-width:160px;margin-left:6px}
+.conflict-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap}
+.conflict-hint{font-size:12.5px;color:var(--text-3);flex-shrink:0}
+
+/* ============ 密码生成器 ============ */
+.gen-box{display:flex;align-items:center;gap:10px}
+.gen-value{flex:1;padding:12px 14px;border-radius:var(--radius-md);background:var(--input-bg);border:1px solid var(--glass-border);font-family:var(--font-mono);font-size:14px;letter-spacing:.05em;word-break:break-all;min-height:46px}
+.gen-value--err{color:var(--danger);font-size:13px;letter-spacing:0}
+.gen-row{display:flex;align-items:center;gap:12px}
+.gen-num{min-width:28px;text-align:right;color:var(--accent);font-weight:700;font-family:var(--font-mono)}
+.gen-check{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px}
+.gen-check label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+input[type=range]{accent-color:var(--accent)}
+
+/* 原型演示用：底部演示导航条（非产品 UI） */
+.demo-bar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 8px;background:rgba(4,8,16,.6);backdrop-filter:blur(14px);border-top:1px solid var(--glass-border);font-size:12px;flex-wrap:wrap}
+.demo-bar button{height:26px;padding:0 10px;border-radius:6px;font-size:12px;color:var(--text-2);border:1px solid var(--glass-border);background:var(--glass-bg)}
+.demo-bar button.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.demo-bar .demo-tip{color:var(--text-3);margin-right:6px}
+.stage{padding-bottom:0}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <div class="bg-glow bg-glow--a"></div>
+  <div class="bg-glow bg-glow--b"></div>
+  <div class="bg-grid"></div>
+
+  <!-- 自绘标题栏 -->
+  <header class="titlebar">
+    <div class="titlebar__brand">
+      <span class="titlebar__logo">🔒</span>
+      <span class="titlebar__name">在线密码本</span>
+      <span class="titlebar__tag">Zero-Knowledge</span>
+    </div>
+    <div class="titlebar__drag"></div>
+    <div class="titlebar__controls">
+      <button class="titlebar__btn" onclick="toggleTheme()" title="切换主题">☾</button>
+      <button class="titlebar__btn" title="最小化">–</button>
+      <button class="titlebar__btn" title="最大化">□</button>
+      <button class="titlebar__btn titlebar__btn--close" title="退出">✕</button>
+    </div>
+  </header>
+
+  <!-- 失焦自动锁定倒计时条（演示） -->
+  <div class="autolock-bar" id="autolockBar" style="display:none">
+    <span class="pb-dot pb-dot--warn"></span> 失焦 4:32 后自动锁定
+  </div>
+
+  <!-- 主区域 -->
+  <main class="stage" id="stage"></main>
+
+  <!-- Toast -->
+  <div class="pb-toast-wrap" id="toasts"></div>
+</div>
+
+<!-- 演示导航（非产品 UI，仅原型阶段用于切换视图） -->
+<div class="demo-bar" id="demoBar"></div>
+
+<script>
+/* ============ 演示数据 ============ */
+const typeMeta={project:{icon:'🗂',label:'项目'},env:{icon:'🌐',label:'环境'},ip_type:{icon:'🖥',label:'IP 类型'},acc_type:{icon:'👤',label:'账号类型'},account:{icon:'🔑',label:'账号'},custom:{icon:'📎',label:'补充卡片'}};
+const entries=[
+  {id:'p1',parent_id:null,type:'project',title:'企业基础设施',fields:{},custom_fields:{},updated_at:1710000000,seq:3},
+  {id:'e1',parent_id:'p1',type:'env',title:'生产环境',fields:{},custom_fields:{},updated_at:1710000100,seq:5},
+  {id:'a1',parent_id:'e1',type:'account',title:'admin',fields:{username:'root',password:'demo-pass',ip:'10.0.0.10',port:'22',remark:'堡垒机跳板'},custom_fields:{},updated_at:1710000200,seq:7},
+  {id:'a2',parent_id:'e1',type:'account',title:'ops',fields:{username:'opsuser',password:'demo-pass'},custom_fields:{},updated_at:1710000300,seq:8,dirty:true,conflict_of:'server'},
+  {id:'it1',parent_id:'e1',type:'ip_type',title:'内网 IP',fields:{},custom_fields:{},updated_at:1710000400,seq:9},
+  {id:'at1',parent_id:'it1',type:'acc_type',title:'运维账号',fields:{},custom_fields:{},updated_at:1710000500,seq:10},
+  {id:'a3',parent_id:'at1',type:'account',title:'deploy',fields:{username:'deploy',password:'demo-pass',ip:'10.0.0.7'},custom_fields:{},updated_at:1710000600,seq:11},
+  {id:'c1',parent_id:'at1',type:'custom',title:'机房信息',fields:{},custom_fields:{机房:'深圳',带宽:'10G'},updated_at:1710000700,seq:12},
+  {id:'p2',parent_id:null,type:'project',title:'测试环境',fields:{},custom_fields:{},updated_at:1710000800,seq:13},
+  {id:'e2',parent_id:'p2',type:'env',title:'预发布',fields:{},custom_fields:{},updated_at:1710000900,seq:14},
+  {id:'a4',parent_id:'e2',type:'account',title:'demo',fields:{username:'demo',password:'demo-pass'},custom_fields:{},updated_at:1710001000,seq:15},
+];
+const expanded=['p1','e1','it1','at1'];
+let selectedId='a1';
+let currentView='list';
+let serverURL='https://pb.example.com:8443';
+let hasSavedURL=true;
+let theme='dark';
+let unlockPage='login';        /* login | register | regManual */
+let regSubPage='invite';        /* invite | manual */
+let regStatus='';               /* '' | pending | approved */
+let regPubKey='';               /* 手动流程生成的公钥（演示） */
+
+/* ============ 工具 ============ */
+const stage=document.getElementById('stage');
+const demoBar=document.getElementById('demoBar');
+const toasts=document.getElementById('toasts');
+function toast(text,type='success'){
+  const t=document.createElement('div');
+  t.className='pb-toast pb-toast--'+type;
+  t.innerHTML='<span>'+(type==='success'?'✓':type==='error'?'✕':'!')+'</span><span>'+text+'</span>';
+  toasts.appendChild(t);
+  setTimeout(()=>t.remove(),3200);
+}
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function fmtTime(ts){if(!ts)return '—';const d=new Date(ts*1000);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;}
+function maskVal(key,val){return /pass|secret|token|pwd|密码/i.test(key)?'••••••••':val;}
+function buildTree(parentId){return entries.filter(e=>e.parent_id===parentId).map(e=>({entry:e,children:buildTree(e.id)}));}
+function findNode(nodes,id){for(const n of nodes){if(n.entry.id===id)return n;const r=findNode(n.children||[],id);if(r)return r;}return null;}
+function toggleTheme(){theme=theme==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',theme);render();}
+
+/* ============ 视图渲染 ============ */
+function render(){
+  document.getElementById('autolockBar').style.display=(currentView==='list'||currentView==='settings'||currentView==='admin')?'flex':'none';
+  const views={unlock:renderUnlock,list:renderList,edit:renderEdit,conflict:renderConflict,settings:renderSettings};
+  (views[currentView]||renderList)();
+  renderDemoBar();
+}
+function renderDemoBar(){
+  const items=[['unlock','🔓 解锁/注册'],['list','📋 密码本列表'],['edit','✏️ 新建/编辑'],['conflict','⚔️ 解决冲突'],['settings','⚙️ 设置']];
+  demoBar.innerHTML='<span class="demo-tip">原型演示：</span>'+items.map(([v,l])=>`<button class="${currentView===v?'on':''}" onclick="goto('${v}')">${l}</button>`).join('');
+}
+function goto(v){currentView=v;if(v==='edit'&&!selectedId){/*保留选中*/}render();window.scrollTo(0,0);}
+function startNew(){selectedId=null;goto('edit');}
+function escapeHtml(s){return esc(s);}
+
+/* ============ 解锁 / 注册页 ============ */
+function renderUnlock(){
+  const isReg=unlockPage==='register'||unlockPage==='regManual';
+  const noResult=!regStatus;
+  const title=isReg?(regSubPage==='manual'?'手动注册 · 生成密钥对':'注册新账号'):'安全解锁';
+  const submitLabel=isReg?(regSubPage==='manual'?'生成公私钥':'注册并等待审核'):'解锁进入';
+  stage.innerHTML=`
+  <div class="unlock">
+    <div class="unlock__left">
+      <div class="unlock__hero">
+        <div class="unlock__logo">🔐</div>
+        <h1 class="unlock__title">在线密码本</h1>
+        <p class="unlock__subtitle">端到端加密 · 团队密钥管理</p>
+        <ul class="unlock__feats">
+          <li><span class="feat-dot"></span>零信任架构，服务端不可见明文</li>
+          <li><span class="feat-dot"></span>国密 SM2/SM3/SM4 全链路加密</li>
+          <li><span class="feat-dot"></span>离线可用 · 冲突字段级三路合并</li>
+        </ul>
+      </div>
+    </div>
+    <div class="unlock__right">
+      <div class="pb-glass pb-glass--strong unlock__card">
+        <div class="unlock__card-head">
+          <h2>${title}</h2>
+          <span class="pb-badge pb-badge--neutral">${isReg?'新成员':'端到端加密'}</span>
+        </div>
+        <div class="unlock__seg">
+          <button class="${!isReg?'on':''}" onclick="setUnlockPage('login')">登录</button>
+          <button class="${isReg?'on':''}" onclick="setUnlockPage('register')">注册</button>
+        </div>
+        ${isReg&&noResult?`
+        <div class="unlock__regtabs">
+          <button class="${regSubPage==='invite'?'on':''}" onclick="switchRegPage('invite')">🎟 邀请码注册</button>
+          <button class="${regSubPage==='manual'?'on':''}" onclick="switchRegPage('manual')">🔑 手动生成密钥</button>
+        </div>`:''}
+        <div class="unlock__section">
+          <div class="unlock__section-title">
+            <span>服务端地址</span>
+            <span class="pb-badge pb-badge--success">已配置</span>
+          </div>
+          <div class="unlock__saved-row">
+            <span class="pb-mono pb-truncate pb-fill">${serverURL}</span>
+            <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="toast('原型：修改地址','info')">修改</button>
+          </div>
+        </div>
+        <div class="pb-divider"></div>
+        ${isReg?renderRegForm(regSubPage):renderLoginForm()}
+        ${isReg&&noResult?`
+        <div class="unlock__skip-row">
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="toast('原型：导入 .key 私钥备份','info')">🔑 有私钥导入</button>
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="setUnlockPage('login')">已有密钥？去登录</button>
+        </div>`:''}
+        ${isReg?'':`
+        <button class="pb-btn pb-btn--primary pb-btn--lg pb-btn--block" onclick="goto('list')">解锁进入</button>
+        <p class="unlock__foot">
+          <span class="pb-dot pb-dot--idle"></span>
+          失焦 5 分钟自动锁定并清除内存密钥
+        </p>`}
+      </div>
+    </div>
+  </div>`;
+}
+function renderLoginForm(){
+  return `
+  <div class="unlock__section">
+    <div class="unlock__section-title"><span>登录</span></div>
+    <div class="pb-field">
+      <label class="pb-label">工号</label>
+      <input class="pb-input pb-input--lg" placeholder="输入工号（唯一、不可改）" value="zhangsan"/>
+    </div>
+    <div class="pb-field">
+      <label class="pb-label">口令</label>
+      <div class="pb-input-group">
+        <input class="pb-input pb-input--lg" type="password" placeholder="输入口令解锁" value="demo-pass"/>
+        <button class="pb-input-group__action" title="显示/隐藏">👁</button>
+      </div>
+    </div>
+  </div>`;
+}
+function renderRegForm(sub){
+  if(regStatus)return renderRegResult();
+  if(sub==='invite'){
+    return `
+    <div class="unlock__section">
+      <div class="unlock__section-title"><span>邀请码注册</span><span class="pb-xs pb-muted">管理员发放</span></div>
+      <div class="pb-field">
+        <label class="pb-label">工号</label>
+        <input class="pb-input pb-input--lg" placeholder="输入工号（唯一、不可改）"/>
+      </div>
+      <div class="pb-field">
+        <label class="pb-label">注册码（邀请码）</label>
+        <input class="pb-input pb-input--lg pb-input--mono" placeholder="如 PB-8K2F-9Q7M"/>
+      </div>
+      <div class="pb-field">
+        <label class="pb-label">口令（保护本地私钥）</label>
+        <div class="pb-input-group">
+          <input class="pb-input pb-input--lg" type="password" placeholder="设置口令"/>
+          <button class="pb-input-group__action" title="显示/隐藏">👁</button>
+        </div>
+      </div>
+      <div class="pb-field">
+        <label class="pb-label">设备名（可选）</label>
+        <input class="pb-input pb-input--lg pb-input--mono" placeholder="默认取主机名"/>
+      </div>
+      <p class="pb-xs pb-muted">将自动生成 SM2 密钥对并提交注册申请：免审核码直接开户，普通码等待管理员审核。</p>
+      <button class="pb-btn pb-btn--primary pb-btn--lg pb-btn--block" onclick="doRegister()">注册并等待审核</button>
+    </div>`;
+  }
+  return `
+  <div class="unlock__section">
+    <div class="unlock__section-title"><span>手动生成密钥对</span><span class="pb-xs pb-muted">无邀请码</span></div>
+    <div class="pb-field">
+      <label class="pb-label">工号</label>
+      <input class="pb-input pb-input--lg" placeholder="输入工号（唯一、不可改）"/>
+    </div>
+    <div class="pb-field">
+      <label class="pb-label">口令（保护本地私钥）</label>
+      <div class="pb-input-group">
+        <input class="pb-input pb-input--lg" type="password" placeholder="设置口令"/>
+        <button class="pb-input-group__action" title="显示/隐藏">👁</button>
+      </div>
+    </div>
+    <p class="pb-xs pb-muted">生成后复制「注册信息」发给管理员开户；本地私钥加密入库，可导出备份。</p>
+    <button class="pb-btn pb-btn--primary pb-btn--lg pb-btn--block" onclick="doGenerateManual()">生成公私钥</button>
+  </div>`;
+}
+function renderRegResult(){
+  if(regStatus==='approved'){
+    return `
+    <div class="unlock__section">
+      <div class="unlock__regresult unlock__regresult--ok">
+        <span class="pb-bold" style="color:var(--success)">✓ 注册成功</span>
+        <span class="pb-sm pb-subtle">免审核邀请码，已自动开户并注册设备，正在进入密码本…</span>
+      </div>
+      <button class="pb-btn pb-btn--primary pb-btn--lg pb-btn--block" onclick="regStatus='';goto('list')">进入密码本</button>
+    </div>`;
+  }
+  return `
+  <div class="unlock__section">
+    <div class="unlock__regresult unlock__regresult--wait">
+      <span class="pb-bold" style="color:var(--warning)">⏳ 申请已提交，等待管理员审核</span>
+      <span class="pb-sm pb-subtle">设备名 DESKTOP-9 · 每 30 秒自动刷新状态</span>
+      <span class="pb-xs pb-muted">审核通过后本页自动跳转；期间请勿重复注册（会覆盖私钥）。</span>
+    </div>
+    <div class="unlock__regtabs" style="justify-content:center">
+      <button onclick="regStatus='';render()">← 返回重新填写</button>
+    </div>
+  </div>`;
+}
+function setUnlockPage(p){unlockPage=p;if(p==='login')regSubPage='invite';regStatus='';render();}
+function switchRegPage(p){regSubPage=p;regStatus='';render();}
+function doRegister(){
+  const code=document.querySelector('.unlock__card .pb-input--mono')?.value||'';
+  regStatus=code.includes('AUTO')?'approved':'pending';
+  toast(regStatus==='approved'?'免审核码，注册成功':'申请已提交，等待审核',regStatus==='approved'?'success':'info');
+  render();
+}
+function doGenerateManual(){
+  regPubKey='MFkwEwYHKoZIzj0CAQYIKoEcz1UBgi0DQgAE'+Math.random().toString(36).slice(2,20).toUpperCase()+'==';
+  showModal('公私钥已生成',`
+    <div class="unlock__pubkey-box">
+      <span class="pb-xs pb-muted">以下「注册信息」复制发给管理员开户：</span>
+      <span class="unlock__pubkey-text">工号：${document.querySelectorAll('.unlock__card .pb-input')[0]?.value||'zhangsan'}\n公钥：${regPubKey}</span>
+    </div>
+    <p class="pb-xs pb-muted">私钥已用口令加密存入本地库，可稍后在设置中导出备份。管理员开户后即可用工号+口令登录。</p>`,[
+    {label:'关闭',cls:'pb-btn--ghost',fn:closeModal},
+    {label:'📋 复制注册信息',cls:'pb-btn--primary',fn:()=>{toast('注册信息已复制');closeModal();regStatus='pending';render();}},
+  ]);
+}
+
+/* ============ 列表页 ============ */
+function renderList(){
+  const roots=buildTree(null);
+  const sel=findNode(roots,selectedId)||roots[0]||null;
+  if(sel)selectedId=sel.entry.id;
+  function depthOf(id){let d=0,p=entries.find(x=>x.id===id)?.parent_id;while(p){d++;p=entries.find(x=>x.id===p)?.parent_id;}return d;}
+  function treeHtml(nodes){
+    return nodes.map(n=>{
+      const e=n.entry;const isOpen=expanded.includes(e.id);const hasCh=n.children.length>0;
+      const isBranch=hasCh||['project','env','ip_type','acc_type'].includes(e.type);
+      const depth=depthOf(e.id);
+      const row=`
+        <div class="pb-tree-node ${e.id===selectedId?'pb-tree-node--active':''} ${isBranch?'pb-tree-node--branch':'pb-tree-node--leaf'} ${depth===0?'pb-tree-node--root':''}" data-node-id="${e.id}" style="padding-left:${12+depth*14}px" onclick="selectNode('${e.id}')">
+          <span class="pb-tree-node__arrow ${isOpen?'pb-tree-node__arrow--open':''} ${!hasCh?'pb-tree-node__arrow--leaf':''}" ${hasCh?`onclick="event.stopPropagation();toggleNode('${e.id}')"`:''}>▶</span>
+          <span class="pb-tree-node__icon">${typeMeta[e.type]?.icon||'📄'}</span>
+          <span class="pb-truncate pb-fill">${esc(e.title)}</span>
+          ${['project','env','ip_type','acc_type'].includes(e.type)?`<button class="pb-tree-node__quick" title="新建子项" onclick="event.stopPropagation();newChild('${e.id}')">＋</button>`:''}
+          ${e.dirty?'<span class="pb-dot pb-dot--warn" title="未推送"></span>':''}
+          ${e.conflict_of?'<span class="pb-badge pb-badge--danger" style="height:18px;padding:0 8px;font-size:11px">冲突</span>':''}
+        </div>`;
+      const ch=isOpen&&hasCh?`<div class="pb-tree-children">${treeHtml(n.children)}</div>`:'';
+      return row+ch;
+    }).join('');
+  }
+  function detailHtml(n){
+    const e=n.entry;
+    let body='';
+    if(e.type==='account'){
+      body=Object.entries(e.fields).map(([k,v])=>`
+        <div class="detail-field">
+          <span class="detail-field__label">${esc(k)}</span>
+          <div class="detail-field__value">
+            <span class="pb-truncate pb-fill pb-mono" id="val_${esc(k)}">${maskVal(k,v)}</span>
+            ${k.toLowerCase().includes('pass')?`<button class="detail-field__reveal" title="显示/隐藏" onclick="toggleReveal('${esc(k)}','${esc(v)}')">👁</button>`:''}
+            <button class="pb-iconbtn" title="复制" onclick="toast('已复制，30 秒后自动清空')">⧉</button>
+          </div>
+        </div>`).join('');
+    }else if(e.type==='custom'){
+      body=Object.entries(e.custom_fields).map(([k,v])=>`
+        <div class="detail-field">
+          <span class="detail-field__label">${esc(k)}</span>
+          <div class="detail-field__value"><span class="pb-truncate pb-fill pb-mono">${esc(v)}</span></div>
+        </div>`).join('');
+    }else{
+      body=`<div class="detail-children">`+(n.children.length?n.children.map(c=>`
+        <div class="detail-child" onclick="selectNode('${c.entry.id}')" style="cursor:pointer">
+          <span class="pb-tree-node__icon">${typeMeta[c.entry.type]?.icon||'📄'}</span>
+          <span class="pb-fill pb-truncate">${esc(c.entry.title)}</span>
+          ${c.children.length?`<span class="pb-xs pb-muted">${c.children.length} 子项</span>`:''}
+        </div>`).join(''):`
+        <div class="pb-empty" style="padding:32px 16px"><span class="pb-empty__icon">📂</span><span class="pb-empty__title">暂无子条目</span></div>`)+`</div>`;
+    }
+    return `
+      <div class="detail-head">
+        <div class="detail-head__title">
+          <span class="detail-head__icon">${typeMeta[e.type]?.icon||'📄'}</span>
+          <h2>${esc(e.title)}</h2>
+        </div>
+        <div class="detail-head__badges">
+          ${e.dirty?'<span class="pb-badge pb-badge--warning">未推送</span>':''}
+          ${e.conflict_of?'<span class="pb-badge pb-badge--danger">待解决冲突</span>':''}
+          <span class="pb-badge pb-badge--neutral">${typeMeta[e.type]?.label||''}</span>
+        </div>
+      </div>
+      <div class="detail-meta pb-xs pb-muted">更新于 ${fmtTime(e.updated_at)} · seq ${e.seq}</div>
+      <hr class="pb-divider"/>
+      ${body}
+      <hr class="pb-divider"/>
+      <div class="detail-actions">
+        ${e.conflict_of?`<button class="pb-btn pb-btn--primary" onclick="goto('conflict')">⚠ 解决冲突</button>`:`
+        <button class="pb-btn pb-btn--primary" onclick="goto('edit')">✏ 编辑</button>
+        ${['project','env','ip_type','acc_type'].includes(e.type)?`<button class="pb-btn pb-btn--ghost" onclick="toast('原型：新建子项','info')">＋ 添加子项</button>`:''}
+        <button class="pb-btn pb-btn--ghost" onclick="confirmDelete('${esc(e.title)}')">🗑 删除</button>`}
+      </div>`;
+  }
+  stage.innerHTML=`
+  <div class="list-view">
+    <div class="list-toolbar">
+      <div class="list-toolbar__left">
+        <div class="list-search" id="listSearch">
+          <span class="list-search__icon">⌕</span>
+          <input class="list-search__input" placeholder="搜索标题 / 账号 / IP…" oninput="demoSearch(this.value)" id="searchInput"/>
+          <button class="list-search__clear" title="清空搜索" onclick="clearSearch()">✕</button>
+        </div>
+      </div>
+      <div class="list-toolbar__right">
+        <span class="pb-badge pb-badge--success"><span class="pb-dot pb-dot--ok"></span>已同步</span>
+        <button class="pb-btn pb-btn--primary pb-btn--sm" onclick="startNew()">＋ 新建</button>
+        <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="toast('同步完成')">⟳ 同步</button>
+        <button class="pb-iconbtn" title="管理面板（管理员）" onclick="toast('管理员入口（见管理端原型）','info')">🛡</button>
+        <button class="pb-iconbtn" title="设置" onclick="goto('settings')">⚙</button>
+        <button class="pb-iconbtn" title="锁定" onclick="goto('unlock')">⏻</button>
+      </div>
+    </div>
+    <div class="list-body">
+      <div class="list-tree pb-glass pb-glass--flat">
+        <div class="list-pane-title"><span>条目树</span><span class="pb-xs pb-muted">${entries.filter(e=>!e.deleted).length} 项</span></div>
+        <div class="list-tree__scroll">${treeHtml(roots)}</div>
+      </div>
+      <div class="list-detail pb-glass pb-glass--flat">
+        ${sel?detailHtml(sel):`<div class="pb-empty"><span class="pb-empty__icon">🔐</span><span class="pb-empty__title">从左侧选择一条条目</span><span class="pb-empty__desc">树形浏览项目 → 环境 → IP 类型 → 账号类型 → 账号 五层骨架</span></div>`}
+      </div>
+    </div>
+  </div>`;
+}
+function selectNode(id){selectedId=id;render();}
+function clearSearch(){const inp=document.getElementById('searchInput');if(inp)inp.value='';demoSearch('');}
+const revealed=new Set();
+function toggleReveal(key,realVal){
+  const el=document.getElementById('val_'+key);
+  if(!el)return;
+  if(revealed.has(key)){revealed.delete(key);el.textContent=maskVal(key,realVal);}
+  else{revealed.add(key);el.textContent=realVal;}
+}
+function newChild(pid){
+  const p=entries.find(x=>x.id===pid);
+  if(!p)return;
+  const childType={project:'env',env:'ip_type',ip_type:'acc_type',acc_type:'account'}[p.type]||'account';
+  window._newChildParent=pid;
+  window._newChildType=childType;
+  selectedId=null;goto('edit');
+  showModal('新建子项',`将在 <b class="pb-mono">${esc(p.title)}</b> 下新建${typeMeta[childType]?.label||'条目'}（原型：演示流程）`,[
+    {label:'取消',cls:'pb-btn--ghost',fn:closeModal},
+    {label:'继续',cls:'pb-btn--primary',fn:closeModal},
+  ]);
+}
+function toggleNode(id){const i=expanded.indexOf(id);if(i>=0)expanded.splice(i,1);else expanded.push(id);render();}
+function demoSearch(kw){
+  kw=kw.trim().toLowerCase();
+  document.querySelectorAll('.pb-tree-node').forEach(r=>r.style.display='');
+  const applyFilled=()=>{const w=document.getElementById('listSearch');if(w)w.classList.toggle('list-search--filled',kw!=='');const i=document.getElementById('searchInput');if(i&&document.activeElement!==i)i.value=kw;};
+  applyFilled();
+  if(!kw){render();return;}
+  // 计算匹配节点（标题 + 字段值），匹配节点的祖先链一并保留并自动展开
+  const match=new Set();
+  for(const e of entries){
+    const hay=[e.title,...Object.keys(e.fields||{}),...Object.values(e.fields||{}),...Object.keys(e.custom_fields||{}),...Object.values(e.custom_fields||{})].join('\n').toLowerCase();
+    if(hay.includes(kw))match.add(e.id);
+  }
+  // 祖先链纳入匹配集
+  for(const e of entries){
+    if(match.has(e.id)){
+      let p=e.parent_id;
+      while(p){match.add(p);p=entries.find(x=>x.id===p)?.parent_id;}
+    }
+  }
+  // 祖先链上的节点自动展开，保证匹配节点可见
+  for(const id of match){const i=expanded.indexOf(id);if(i<0)expanded.push(id);}
+  render();
+  applyFilled();
+  document.querySelectorAll('.pb-tree-node').forEach(r=>{
+    const id=r.getAttribute('data-node-id');
+    if(id&&!match.has(id))r.style.display='none';
+  });
+}
+function confirmDelete(title){
+  showModal('确认删除',`确定删除条目 <b class="pb-mono">${esc(title)}</b> 吗？<p class="pb-sm pb-muted">将连同其下子条目一并删除。删除为带 tombstone 的逻辑删除（保留审计与同步标记），其他成员同步后即不可见；如需恢复需在推送前撤销。</p>`,[
+    {label:'取消',cls:'pb-btn--ghost',fn:closeModal},
+    {label:'确认删除',cls:'pb-btn--danger',fn:()=>{closeModal();toast('已删除（同步到其他成员）');}},
+  ]);
+}
+
+/* ============ 编辑页 ============ */
+function renderEdit(){
+  const e=selectedId?entries.find(x=>x.id===selectedId):null;
+  const isNew=!e;
+  const t=e?e.type:'account';
+  stage.innerHTML=`
+  <div class="edit-view">
+    <div class="pb-glass pb-glass--strong edit-card">
+      <div class="edit-head">
+        <button class="pb-iconbtn" title="返回" onclick="goto('list')">←</button>
+        <h2>${isNew?'新建账号':'编辑条目'}</h2>
+        <span class="pb-fill"></span>
+        <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="goto('list')">取消</button>
+        <button class="pb-btn pb-btn--primary pb-btn--sm" onclick="saveEntry()">保存</button>
+      </div>
+      <hr class="pb-divider"/>
+      <div class="edit-body">
+        <div class="pb-field">
+          <label class="pb-label">标题</label>
+          <input class="pb-input" placeholder="如：生产环境 / root 账号" value="${e?esc(e.title):''}" autofocus/>
+        </div>
+        <div class="pb-field">
+          <label class="pb-label">类型</label>
+          <select class="pb-input" ${isNew?'':'disabled'} style="appearance:auto;cursor:pointer">
+            ${Object.entries(typeMeta).map(([k,m])=>`<option value="${k}" ${t===k?'selected':''}>${m.icon} ${m.label}</option>`).join('')}
+          </select>
+          ${!isNew?'<p class="pb-xs pb-muted">类型创建后不可变更</p>':''}
+        </div>
+        ${t==='account'?`
+          <div class="pb-field"><label class="pb-label">username</label><div class="pb-input-group"><input class="pb-input pb-input--mono" value="${e?.fields?.username||''}"/></div></div>
+          <div class="pb-field"><label class="pb-label">password</label><div class="pb-input-group"><input class="pb-input pb-input--mono" type="password" value="${e?.fields?.password||''}"/><button class="pb-input-group__action" title="生成密码" onclick="openGen()">⚡</button></div></div>
+          ${Object.entries(e?.fields||{}).filter(([k])=>!['username','password'].includes(k)).map(([k,v])=>`<div class="pb-field"><label class="pb-label">${esc(k)}</label><div class="pb-input-group"><input class="pb-input pb-input--mono" value="${esc(v)}"/><button class="pb-input-group__action" title="删除字段" onclick="removeField('${esc(k)}')">✕</button></div></div>`).join('')}
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="toast('原型：添加字段','info')">＋ 添加字段</button>`:
+        t==='custom'?`
+          ${Object.entries(e?.custom_fields||{}).map(([k,v])=>`<div class="pb-field"><label class="pb-label">${esc(k)}</label><div class="pb-input-group"><input class="pb-input pb-input--mono" value="${esc(v)}"/><button class="pb-input-group__action" title="删除字段" onclick="removeField('${esc(k)}')">✕</button></div></div>`).join('')||'<div class="edit-note">补充卡片 · 通用动态表单</div>'}
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="toast('原型：添加自定义字段','info')">＋ 添加自定义字段</button>`:
+        `<div class="edit-note">${typeMeta[t]?.label} 节点只需填写标题，用于组织树形结构</div>`}
+      </div>
+    </div>
+  </div>`;
+}
+function saveEntry(){closeModal();toast('已保存并待推送同步');goto('list');}
+function removeField(key){
+  const e=selectedId?entries.find(x=>x.id===selectedId):null;
+  if(!e){toast('新建条目直接留空即可删除字段','info');return;}
+  showModal('删除字段',`确定删除字段 <b class="pb-mono">${esc(key)}</b> 吗？`,[
+    {label:'取消',cls:'pb-btn--ghost',fn:closeModal},
+    {label:'确认删除',cls:'pb-btn--danger',fn:()=>{delete e.fields[key];delete e.custom_fields[key];closeModal();toast(`字段「${key}」已删除`);render();}},
+  ]);
+}
+function openGen(){
+  showModal('⚡ 密码生成器',`
+  <div class="gen-box"><span class="gen-value">Xk9#mQ2zLp5vN8w</span><button class="pb-btn pb-btn--ghost pb-btn--sm">⟳ 重新生成</button></div>
+  <div class="gen-row"><label class="pb-label" style="min-width:60px">长度</label><input type="range" min="4" max="64" value="16" style="flex:1"/><span class="gen-num">16</span></div>
+  <div class="gen-row"><label class="pb-label" style="min-width:60px">字符集</label><div class="gen-check"><label><input type="checkbox" checked/> A-Z</label><label><input type="checkbox" checked/> a-z</label><label><input type="checkbox" checked/> 0-9</label><label><input type="checkbox"/> !@#$</label></div></div>
+  <label class="gen-row" style="cursor:pointer"><input type="checkbox" checked/><span>排除易混淆字符（0/O/1/l/I）</span></label>`,
+  [
+    {label:'取消',cls:'pb-btn--ghost',fn:closeModal},
+    {label:'填入条目',cls:'pb-btn--primary',fn:()=>{closeModal();toast('密码已填入 password 字段');}},
+  ]);
+}
+
+/* ============ 解决冲突页 ============ */
+function renderConflict(){
+  const base={username:'root',password:'old-pass-1',ip:'10.0.0.10',port:'22'};
+  const ours={username:'root',password:'new-local-pass',ip:'10.0.0.10',port:'22'};
+  const theirs={username:'root',password:'server-pass-2',ip:'10.0.0.20',port:'2222'};
+  const titleBase='admin',titleOurs='admin',titleTheirs='admin (服务端改)';
+  const keys=['username','password','ip','port'];
+  function cell(label,val,diff){return `<div class="conflict-col__field ${diff?'conflict-col__field--diff':''}"><span class="conflict-col__key">${label}</span><span class="pb-mono">${maskVal(label,val)||'—'}</span></div>`;}
+  const choices=window._conflictChoices||{password:'local',ip:'server',port:'server'};
+  window._conflictChoices=choices;
+  stage.innerHTML=`
+  <div class="conflict">
+    <div class="conflict-head">
+      <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="goto('list')">← 返回列表</button>
+      <div class="conflict-head__title">
+        <span class="conflict-head__icon">⚔</span>
+        <div><h2>解决冲突</h2><p class="pb-xs pb-muted">同一条目在多端被修改 · 按字段选择保留哪一份内容</p></div>
+      </div>
+      <span class="pb-badge pb-badge--danger"><span class="pb-dot pb-dot--err"></span>3 处冲突</span>
+    </div>
+    <div class="conflict-cols">
+      <div class="conflict-col">
+        <div class="conflict-col__head"><span class="pb-badge pb-badge--neutral">基础版本</span><span class="pb-xs pb-muted">06-01 10:00</span></div>
+        <div class="conflict-col__body">
+          <div class="conflict-col__title">${titleBase}</div>
+          ${keys.map(k=>cell(k,base[k],false)).join('')}
+        </div>
+      </div>
+      <div class="conflict-col">
+        <div class="conflict-col__head"><span class="pb-badge pb-badge--accent">本地版本（未推送）</span><span class="pb-xs pb-muted">06-02 09:30</span></div>
+        <div class="conflict-col__body">
+          <div class="conflict-col__title ${titleOurs!==titleBase?'conflict-col__title--diff':''}">${titleOurs}</div>
+          ${keys.map(k=>cell(k,ours[k],ours[k]!==base[k])).join('')}
+        </div>
+      </div>
+      <div class="conflict-col">
+        <div class="conflict-col__head"><span class="pb-badge pb-badge--warning">服务端版本</span><span class="pb-xs pb-muted">06-02 14:00</span></div>
+        <div class="conflict-col__body">
+          <div class="conflict-col__title ${titleTheirs!==titleBase?'conflict-col__title--diff':''}">${titleTheirs}</div>
+          ${keys.map(k=>cell(k,theirs[k],theirs[k]!==base[k])).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="conflict-resolve">
+      <div class="conflict-resolve__head"><span class="pb-bold">逐字段解决</span>
+        <div class="conflict-resolve__quick">
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="toast('已全部采用本地','info')">全部采用本地</button>
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="toast('已全部采用服务端','info')">全部采用服务端</button>
+        </div>
+      </div>
+      ${['password','ip','port'].map(k=>{
+        const c=choices[k];
+        const active=cls=>c===cls?'conflict-resolve__active':'';
+        const manualVal=c&&c.startsWith('manual:')?c.slice(7):'';
+        return `<div class="conflict-resolve__row">
+          <span class="conflict-resolve__key">${k}</span>
+          <div class="conflict-resolve__opts">
+            <button class="pb-btn pb-btn--ghost pb-btn--sm ${active('local')}" onclick="pickSide('${k}','local')">本地<span class="pb-mono pb-xs">「${maskVal(k,ours[k])}」</span></button>
+            <button class="pb-btn pb-btn--ghost pb-btn--sm ${active('server')}" onclick="pickSide('${k}','server')">服务端<span class="pb-mono pb-xs">「${maskVal(k,theirs[k])}」</span></button>
+            ${c&&c.startsWith('manual:')?`
+            <input class="pb-input pb-input--mono conflict-resolve__input" id="manual_${k}" value="${esc(manualVal)}" placeholder="输入自定义值"/>
+            <button class="pb-btn pb-btn--primary pb-btn--sm" onclick="confirmManual('${k}')">确定</button>
+            <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="pickSide('${k}','')">取消</button>`:
+            `<button class="pb-btn pb-btn--ghost pb-btn--sm ${c&&c.startsWith('manual:')?'conflict-resolve__active':''}" onclick="pickSide('${k}','manual')">手动</button>`}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="conflict-actions">
+      <span class="pb-fill"></span>
+      <button class="pb-btn pb-btn--danger" onclick="resolveConflict()">确认解决并同步</button>
+    </div>
+    <p class="conflict-hint">未列出的字段已按「仅一方修改则采用修改方」自动合并。</p>
+  </div>`;
+}
+function resolveConflict(){toast('冲突已解决，变更将同步到服务端');goto('list');}
+function pickSide(key,side){
+  const c=window._conflictChoices||{};
+  if(side==='manual'){c[key]='manual:';render();}
+  else{c[key]=side;render();}
+}
+function confirmManual(key){
+  const c=window._conflictChoices||{};
+  const inp=document.getElementById('manual_'+key);
+  const v=inp?inp.value.trim():'';
+  if(!v){toast('请输入自定义值','error');return;}
+  c[key]='manual:'+v;toast(`字段「${key}」已采用手动值`);render();
+}
+
+/* ============ 设置页 ============ */
+function renderSettings(){
+  stage.innerHTML=`
+  <div class="settings">
+    <div class="settings-head">
+      <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="goto('list')">← 返回列表</button>
+      <h2>设置</h2>
+      <span class="pb-fill"></span>
+      <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="goto('unlock')">⏻ 锁定</button>
+    </div>
+    <div class="settings-body">
+      <section class="settings-card">
+        <div class="settings-card__head"><span class="settings-card__icon">🌐</span><div><h3>服务端连接</h3><p class="pb-xs pb-muted">修改后需重新验证，配置持久化在本地库</p></div></div>
+        <div class="settings-card__body">
+          <div class="pb-field"><label class="pb-label">服务端地址</label>
+            <div class="settings-row"><input class="pb-input pb-input--mono" value="${serverURL}"/><button class="pb-btn pb-btn--ghost" onclick="toast('服务端连接正常')">验证</button></div>
+          </div>
+          <div class="settings-actions"><button class="pb-btn pb-btn--primary" onclick="toast('已保存，下次同步将使用新地址')">保存并应用</button><span class="pb-xs pb-muted">也可通过 --reinit 启动参数强制进入首次初始化引导</span></div>
+        </div>
+      </section>
+      <section class="settings-card">
+        <div class="settings-card__head"><span class="settings-card__icon">⟳</span><div><h3>同步状态</h3><p class="pb-xs pb-muted">自动同步：离线可编辑 · 联网后自动合并推送</p></div><span class="pb-fill"></span>
+          <span class="pb-badge pb-badge--success"><span class="pb-dot pb-dot--ok"></span>已连接</span></div>
+        <div class="settings-card__body">
+          <div class="settings-syncmode"><span class="pb-label">同步方式</span>
+            <div class="settings-syncmode__options">
+              <label class="settings-syncmode__opt on"><input type="radio" checked/><span>自动同步</span><span class="pb-xs pb-muted">SSE 实时推送 · 保存后自动同步</span></label>
+              <label class="settings-syncmode__opt"><input type="radio"/><span>手动同步</span><span class="pb-xs pb-muted">关闭后台连接 · 点「立即同步」才拉取/推送</span></label>
+            </div>
+          </div>
+          <div class="settings-stats">
+            <div class="settings-stat"><span class="settings-stat__val">空闲</span><span class="settings-stat__label">同步阶段</span></div>
+            <div class="settings-stat"><span class="settings-stat__val">1</span><span class="settings-stat__label">参与分组</span></div>
+            <div class="settings-stat"><span class="settings-stat__val">0</span><span class="settings-stat__label">待接收信封</span></div>
+            <div class="settings-stat"><span class="settings-stat__val">1</span><span class="settings-stat__label">未推送修改</span></div>
+            <div class="settings-stat"><span class="settings-stat__val">0</span><span class="settings-stat__label">同步异常</span></div>
+          </div>
+          <div class="settings-actions"><span class="pb-xs pb-muted">服务端 seq 1024 · 上次拉取 06-02 14:00</span><span class="pb-fill"></span><button class="pb-btn pb-btn--primary pb-btn--sm" onclick="toast('同步完成')">立即同步</button></div>
+        </div>
+      </section>
+      <section class="settings-card">
+        <div class="settings-card__head"><span class="settings-card__icon">🎨</span><div><h3>外观</h3><p class="pb-xs pb-muted">玻璃拟态 · 深色科技感 / 简洁明亮双主题</p></div></div>
+        <div class="settings-card__body">
+          <div class="settings-theme">
+            <button class="settings-theme__opt ${theme==='dark'?'settings-theme__opt--active':''}" onclick="setTheme('dark')"><span class="settings-theme__swatch settings-theme__swatch--dark">🌙</span><span>深色科技感</span></button>
+            <button class="settings-theme__opt ${theme==='light'?'settings-theme__opt--active':''}" onclick="setTheme('light')"><span class="settings-theme__swatch settings-theme__swatch--light">☀</span><span>简洁明亮</span></button>
+          </div>
+        </div>
+      </section>
+      <section class="settings-card">
+        <div class="settings-card__head"><span class="settings-card__icon">🛡</span><div><h3>数据与安全</h3><p class="pb-xs pb-muted">本地数据目录 · 锁定策略</p></div></div>
+        <div class="settings-card__body">
+          <div class="settings-info-row"><span class="settings-info-row__label">数据目录</span><span class="pb-mono pb-truncate pb-fill" style="text-align:right">C:\\Users\\zhangsan\\AppData\\Roaming\\passbook</span></div>
+          <div class="settings-info-row"><span class="settings-info-row__label">自动锁定</span><span class="pb-subtle pb-sm">失焦 5 分钟自动锁定，清除内存密钥</span></div>
+          <div class="settings-info-row settings-info-row--col"><span class="settings-info-row__label">自动解锁</span>
+            <div class="settings-autounlock"><span class="pb-subtle pb-sm">Windows DPAPI 免口令解锁（绑定本机+当前账户）</span><button class="pb-btn pb-btn--ghost" onclick="toast('自动解锁已开启')">开启</button></div></div>
+          <div class="settings-info-row"><span class="settings-info-row__label">密钥存储</span><span class="pb-subtle pb-sm">Zero-Knowledge：服务端仅存密文信封，明文永不上传</span></div>
+          <div class="settings-info-row settings-info-row--col"><span class="settings-info-row__label">私钥备份</span>
+            <div class="settings-autounlock"><span class="pb-subtle pb-sm">导出私钥备份（.key，口令加密）用于新设备恢复登录</span><button class="pb-btn pb-btn--ghost" onclick="toast('私钥备份已保存','success')">💾 导出私钥备份</button></div></div>
+          <div class="settings-actions"><button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="goto('unlock')">⏻ 立即锁定</button></div>
+        </div>
+      </section>
+    </div>
+  </div>`;
+}
+function setTheme(t){theme=t;document.documentElement.setAttribute('data-theme',t);render();}
+
+/* ============ 通用弹窗 ============ */
+let modalEl=null;
+function showModal(title,bodyHtml,actions){
+  const mask=document.createElement('div');mask.className='pb-modal-mask';
+  mask.innerHTML=`<div class="pb-modal pb-glass pb-glass--strong">
+    <div class="pb-modal__head"><span class="pb-modal__title">${title}</span><button class="pb-iconbtn" data-act="cancel">✕</button></div>
+    <div class="pb-modal__body">${bodyHtml}</div>
+    <div class="pb-modal__foot">${actions.map((a,i)=>`<button class="pb-btn ${a.cls}" data-act="${i}">${a.label}</button>`).join('')}</div>
+  </div>`;
+  mask.addEventListener('click',e=>{
+    const btn=e.target.closest('button[data-act]');
+    if(!btn)return;
+    const act=btn.getAttribute('data-act');
+    if(act==='cancel'){closeModal();return;}
+    actions[Number(act)].fn();
+  });
+  document.body.appendChild(mask);modalEl=mask;
+}
+function closeModal(){if(modalEl){modalEl.remove();modalEl=null;}}
+
+/* ============ 初始化 ============ */
+render();
+</script>
+</body>
+</html>

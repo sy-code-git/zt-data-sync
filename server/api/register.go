@@ -22,8 +22,8 @@ func (s *Server) handleRegisterRequest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, proto.ErrBadRequest, "请求体解析失败")
 		return
 	}
-	if req.InviteCode == "" || req.Username == "" || req.SM2PublicKey == "" || req.DeviceName == "" {
-		writeErr(w, proto.ErrBadRequest, "字段缺失（邀请码/工号/公钥/设备名）")
+	if req.InviteCode == "" || req.Username == "" || req.SM2PublicKey == "" {
+		writeErr(w, proto.ErrBadRequest, "字段缺失（邀请码/工号/公钥）")
 		return
 	}
 	inv, err := s.store.GetInviteByCode(req.InviteCode)

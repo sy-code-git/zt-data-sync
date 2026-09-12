@@ -1,0 +1,18 @@
+本目录：运维脚本（bat/sh）统一存放处
+====================================
+
+目录划分（方案 C，2026-08-26 确定）：
+  scripts/   工具类脚本（gen-ca.sh / gen-setup.go 等证书/注册配置生成工具）
+  脚本/      运维类脚本（发布 / 部署 / 重置 / 发布.sh）
+
+现有脚本清单：
+  发布.bat    dev --squash--> main --> push 双远程（origin/gitee）
+  发布.sh     Linux 版发布脚本
+  部署.bat    本地测试一键部署（GBK+CRLF，cd /d "%~dp0\.." 定位仓库根）
+  重置.bat    测试环境重置（GBK+CRLF，cd /d "%~dp0\.." 定位仓库根）
+
+约定（2026-08-26 起执行）：
+1. 临时编译产物（exe/7z 等）一律放到根目录 tmp/，用后即删（tmp/ 已在 .gitignore）
+2. 新建 bat/sh 脚本统一放本「脚本」目录（运维类）或 scripts/（工具类）
+3. bat 文件编码统一 UTF-8（无 BOM）+ CRLF，@echo off 后加 chcp 65001 >nul（2026-09-08 起，兼容 UTF-8 代码页终端；旧 GBK 约定已废弃），sh 用 UTF-8+LF
+4. 脚本内相对路径引用仓库根时，用 cd /d "%~dp0\.."（bat）或 cd "$(dirname "$0")/.."（sh）

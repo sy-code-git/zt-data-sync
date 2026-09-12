@@ -236,6 +236,7 @@ export namespace proto {
 	export class GroupMemberInfo {
 	    user_id: string;
 	    name: string;
+	    role: string;
 	    online: boolean;
 	    devices: DeviceBrief[];
 	
@@ -247,6 +248,7 @@ export namespace proto {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.user_id = source["user_id"];
 	        this.name = source["name"];
+	        this.role = source["role"];
 	        this.online = source["online"];
 	        this.devices = this.convertValues(source["devices"], DeviceBrief);
 	    }
@@ -268,6 +270,60 @@ export namespace proto {
 		    }
 		    return a;
 		}
+	}
+	export class InviteOut {
+	    code: string;
+	    username: string;
+	    auto_approve: boolean;
+	    status: string;
+	    expires_at: number;
+	    created_at: number;
+	    used_at?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new InviteOut(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.username = source["username"];
+	        this.auto_approve = source["auto_approve"];
+	        this.status = source["status"];
+	        this.expires_at = source["expires_at"];
+	        this.created_at = source["created_at"];
+	        this.used_at = source["used_at"];
+	    }
+	}
+	export class RegisterRequestOut {
+	    id: string;
+	    invite_code: string;
+	    username: string;
+	    sm2_public_key: string;
+	    device_name: string;
+	    ip: string;
+	    status: string;
+	    created_at: number;
+	    reviewed_by?: string;
+	    reviewed_at?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RegisterRequestOut(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.invite_code = source["invite_code"];
+	        this.username = source["username"];
+	        this.sm2_public_key = source["sm2_public_key"];
+	        this.device_name = source["device_name"];
+	        this.ip = source["ip"];
+	        this.status = source["status"];
+	        this.created_at = source["created_at"];
+	        this.reviewed_by = source["reviewed_by"];
+	        this.reviewed_at = source["reviewed_at"];
+	    }
 	}
 	export class UserInfo {
 	    user_id: string;

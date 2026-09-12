@@ -52,6 +52,7 @@ type GroupMember struct {
 	GroupID   string
 	UserID    string
 	CreatedAt int64
+	Role      string // JOIN users：用于前端判断管理员不可吊销/移除
 }
 
 // 用户角色与状态（§5.2 users 表）。

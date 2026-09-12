@@ -43,10 +43,10 @@ type Engine struct {
 	local store.LocalStore
 	api   ServerClient
 
-	serverURL string // SSE 连接地址
-	token     string // 解锁态设备 token（SSE 鉴权）
+	serverURL string       // SSE 连接地址
+	token     string       // 解锁态设备 token（SSE 鉴权）
 	sseBase   *http.Client // SSE 长连接基础客户端（复用 API Transport，继承 CA pinning/智能选路）
-	tokenTTL  int64  // 最近一次签发 token 的总有效期（秒，0=未知），提前刷新阈值用
+	tokenTTL  int64        // 最近一次签发 token 的总有效期（秒，0=未知），提前刷新阈值用
 
 	mu        sync.Mutex
 	status    api.SyncStatus
@@ -509,6 +509,20 @@ func (e *Engine) applyOneChange(c *proto.Change) error {
 	if exErr == nil && existing.ConflictOf != "" && c.Seq <= existing.Seq {
 		return nil
 	}
+	// 本地墓碑优先（§2：墓碑防止已删数据被回传复活）：本机已删除待推送时，服务端内容不得覆盖该意图。
+	//
+	// 背景：推送成功后 last_seq 只在「拉取」时推进，因此删除后紧接着的同步会把本端刚推上去的
+	// 那一版又发回来；若此处按普通条目处理，墓碑会被合并/冲突流程抹掉（Deleted 默认 false），
+	// 删除就永远推不出去，且服务端与他人仍持有密文（实测 P0）。
+	// 墓碑没有明文素材，因此也不参与下面的三路合并。
+	if exErr == nil && existing.Deleted {
+		if !existing.Dirty {
+			// 兜底：墓碑必须留在推送队列里（正常路径由 Core.DeleteEntry 置 dirty）
+			existing.Dirty = true
+			return e.local.UpsertLocalEntry(existing)
+		}
+		return nil
+	}
 	conflictOf := ""
 	cache, err := e.vault.EncryptCache(plaintext)
 	if err != nil {
@@ -558,7 +572,6 @@ func (e *Engine) applyOneChange(c *proto.Change) error {
 	}
 	return e.local.ClearBadSeq(c.Seq)
 }
-
 
 // pushDirty 收集本地脏条目并推送（§7.2 步骤 5）。
 func (e *Engine) pushDirty() error {
@@ -669,6 +682,15 @@ func (e *Engine) handlePushConflict(entryID string, current *proto.Change) error
 	le, err := e.local.GetLocalEntry(entryID)
 	if err != nil {
 		return e.local.SetConflict(entryID, entryID)
+	}
+	// 本地墓碑（已删除待推送）→ 保持删除意图：只把基准推进到服务端当前版本，下一轮 push 即送达墓碑。
+	// 对端在此期间改过内容也不复活该条目（§2：墓碑防止已删数据被回传复活）；
+	// 墓碑无明文素材，不参与下面的三路合并，也不该被写成"带内容的冲突行"。
+	if le.Deleted {
+		return e.local.UpsertLocalEntry(&store.LocalEntry{
+			ID: entryID, GroupID: current.GroupID, Seq: current.Seq, KeyVersion: current.KeyVersion,
+			Ciphertext: "", Dirty: true, Deleted: true, UpdatedAt: current.UpdatedAt,
+		})
 	}
 	// theirs：服务端当前密文现场解密
 	if theirPlain, err := e.vault.DecryptPlaintext(current.GroupID, entryID, current.Ciphertext); err == nil {

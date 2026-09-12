@@ -27,6 +27,8 @@ type LocalStore interface {
 	// ---- 本地身份（identity，§9.1 方案 A：私钥加密存本地库） ----
 	GetIdentity() (*Identity, error)
 	SetIdentity(i *Identity) error
+	// ClearIdentity 清除本地身份 + 设备状态（注册失败回滚：避免重启后误判为已注册用户）
+	ClearIdentity() error
 	// GetServerURL 读取服务端地址配置（§9.2；未配置返回空串）。
 	GetServerURL() (string, error)
 	// SetServerURL 持久化服务端地址配置（§9.2）。

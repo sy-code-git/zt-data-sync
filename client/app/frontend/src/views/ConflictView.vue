@@ -11,6 +11,24 @@ const busy = ref(false)
 // 逐字段解决（§7.3）：key -> 'local' | 'server' | 'manual'
 const choices = reactive({})
 const manualVals = reactive({})
+// 手动值确认状态：确认后收起输入行、展示已确认值（对齐原型 确定/取消 流程）
+const manualConfirmed = reactive({})
+
+// 确定手动值：非空校验（空则轻提示报错，对齐原型）
+function confirmManual(key) {
+  if (!String(manualVals[key] ?? '').trim()) {
+    store.toast(`字段「${key}」手动值不能为空`, 'error')
+    return
+  }
+  manualConfirmed[key] = true
+}
+
+// 取消手动输入：恢复底稿并清除该字段选择
+function cancelManual(key) {
+  manualVals[key] = rawVal(conflict.value?.ours, key)
+  manualConfirmed[key] = false
+  delete choices[key]
+}
 
 onMounted(async () => {
   const id = store.editing?.id
@@ -52,7 +70,7 @@ const fieldKeys = computed(() => {
 })
 
 // 所有可解决字段（title + 字段键）
-const allKeys = computed(() => ['title', ...fieldKeys.value])
+const allKeys = computed(() => ['title', ...(fieldKeys.value || [])])
 
 function rawVal(v, key) {
   if (!v) return ''
@@ -82,9 +100,12 @@ function isDiff(key) {
   return stateOf(key) !== 'same'
 }
 
-// 密码类字段掩码显示
+// 密码类字段掩码显示。三路比对必须能看清实际取值，否则无法判断保留哪一份，
+// 故提供「显示明文」切换（与账号详情页的 👁 用法一致，仅在已解锁的界面上生效）
+const revealAll = ref(false)
 function masked(key, val) {
   if (!val) return val
+  if (revealAll.value) return val
   return /pass|secret|token|pwd|密码/i.test(key) ? '••••••••' : val
 }
 
@@ -191,6 +212,11 @@ function back() {
           <p class="pb-xs pb-muted">同一条目在多端被修改 · 按字段选择保留哪一份内容</p>
         </div>
       </div>
+      <button
+          class="pb-btn pb-btn--ghost pb-btn--sm"
+          :title="revealAll ? '恢复掩码显示' : '显示密码字段明文，便于逐字段比对'"
+          @click="revealAll = !revealAll"
+      >{{ revealAll ? '🙈 隐藏明文' : '👁 显示明文' }}</button>
       <span class="pb-badge pb-badge--danger">
         <span class="pb-dot pb-dot--err"></span>{{ conflictKeys.length }} 处冲突
       </span>
@@ -281,16 +307,31 @@ function back() {
             <button
                 class="pb-btn pb-btn--ghost pb-btn--sm"
                 :class="{'conflict-resolve__active': choices[key] === 'manual'}"
-                @click="choices[key] = 'manual'"
+                @click="choices[key] = 'manual'; manualConfirmed[key] = false"
             >手动</button>
           </div>
-          <input
-              v-if="choices[key] === 'manual'"
-              v-model="manualVals[key]"
-              class="pb-input pb-input--mono conflict-resolve__input"
-              :placeholder="key"
-              spellcheck="false"
-          />
+          <template v-if="choices[key] === 'manual'">
+            <template v-if="!manualConfirmed[key]">
+              <input
+                  v-model="manualVals[key]"
+                  class="pb-input pb-input--mono conflict-resolve__input"
+                  placeholder="输入自定义值"
+                  spellcheck="false"
+                  @keyup.enter="confirmManual(key)"
+              />
+              <button
+                  class="pb-btn pb-btn--primary pb-btn--sm"
+                  title="确定手动值"
+                  @click="confirmManual(key)"
+              >确定</button>
+              <button
+                  class="pb-btn pb-btn--ghost pb-btn--sm"
+                  title="放弃手动输入"
+                  @click="cancelManual(key)"
+              >取消</button>
+            </template>
+            <span v-else class="pb-mono pb-xs conflict-resolve__ok">✓ 自定义「{{ masked(key, manualVals[key]) }}」</span>
+          </template>
         </div>
       </div>
 
@@ -306,7 +347,7 @@ function back() {
           <span>确认解决并同步</span>
         </button>
       </div>
-      <p v-if="conflictKeys.length" class="conflict-hint">未列出的字段已按「仅一方修改则采用修改方」自动合并。</p>
+      <p class="conflict-hint">未列出的字段已按「仅一方修改则采用修改方」自动合并。</p>
     </template>
   </div>
 </template>
@@ -456,6 +497,12 @@ function back() {
   flex: 1;
   min-width: 160px;
   margin-left: 6px;
+}
+
+/* 手动值已确认徽标 */
+.conflict-resolve__ok {
+  margin-left: 6px;
+  color: var(--success);
 }
 
 .conflict-actions {

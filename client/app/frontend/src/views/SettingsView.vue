@@ -98,6 +98,18 @@ async function setMode(mode) {
   }
 }
 
+// 导出私钥备份（.key 文件，口令加密；用于新设备恢复登录）
+async function exportKeyfile() {
+  try {
+    const path = await api.SaveFileDialog('保存私钥备份')
+    if (!path) return
+    await api.ExportKeyfile(path)
+    store.toast(`私钥备份已保存到 ${path}`, 'success')
+  } catch (e) {
+    store.toast(String(e.message || e), 'error')
+  }
+}
+
 async function toggleAutoUnlock() {
   try {
     if (store.autoUnlockEnabled) {
@@ -132,7 +144,7 @@ async function toggleAutoUnlock() {
           <span class="settings-card__icon">🌐</span>
           <div>
             <h3>服务端连接</h3>
-            <p class="pb-xs pb-muted">修改后需重新验证，配置持久化在本地库（app_config）</p>
+            <p class="pb-xs pb-muted">修改后需重新验证，配置持久化在本地库</p>
           </div>
         </div>
         <div class="settings-card__body">
@@ -301,6 +313,15 @@ async function toggleAutoUnlock() {
           <div class="settings-info-row">
             <span class="settings-info-row__label">密钥存储</span>
             <span class="pb-subtle pb-sm">Zero-Knowledge：服务端仅存密文信封，明文永不上传</span>
+          </div>
+          <div class="settings-info-row settings-info-row--col">
+            <span class="settings-info-row__label">私钥备份</span>
+            <div class="settings-autounlock">
+              <span class="pb-subtle pb-sm">
+                导出私钥备份（.key，口令加密）用于新设备恢复登录
+              </span>
+              <button class="pb-btn pb-btn--ghost" @click="exportKeyfile">💾 导出私钥备份</button>
+            </div>
           </div>
           <div class="settings-actions">
             <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="store.lock()">⏻ 立即锁定</button>

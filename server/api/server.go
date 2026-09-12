@@ -68,13 +68,25 @@ func (s *Server) Router() http.Handler {
 		r.Use(middleware.CORS(s.cors))
 	}
 
-	// ---- 无认证（Timeout + 认证限流 5/min/IP，§8.3） ----
+	// ---- 无认证 · 身份供给面（Timeout + 认证限流 5/min/IP，§8.3） ----
+	// 仅这三条：签发身份凭据的接口，与 lockoutTracker（连续 10 次失败锁 IP 10 分钟）叠加防撞库。
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Timeout(10 * time.Second))
 		r.Use(s.limiter.Middleware(middleware.LimitAuth, middleware.ClientIP))
 		r.Post("/auth/bootstrap", s.handleBootstrap)
 		r.Post("/auth/device-challenge", s.handleDeviceChallenge)
 		r.Post("/auth/device", s.handleDeviceRegister)
+	})
+
+	// ---- 无认证 · 注册申请面（Timeout + 注册限流 60/min/IP） ----
+	// §8.3 的「认证 5/min/IP」只覆盖上面三条身份供给接口；注册申请面必须单列：
+	// register-status 是待审客户端每 30s 的状态轮询（2 次/分/客户端），
+	// 20 个客户端同处一个 NAT 出口时合计 ≈40~45 次/分，若与身份供给面共桶，
+	// 仅 5 个待审就会耗尽配额，进而把全团队的 device-challenge / 注册 / 登录一起拒掉（42901）。
+	// 该面另有邀请码 + REG_SECRET attestation 校验（§4.4），邀请码 2^40 级不可枚举。
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Timeout(10 * time.Second))
+		r.Use(s.limiter.Middleware(middleware.LimitRegister, middleware.ClientIP))
 		r.Post("/auth/register-request", s.handleRegisterRequest)
 		r.Get("/auth/register-status", s.handleRegisterStatus)
 	})

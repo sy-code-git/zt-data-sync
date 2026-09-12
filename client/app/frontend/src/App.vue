@@ -8,6 +8,7 @@ import {
 import {useAppStore} from './store'
 import {useModalFocus} from './composables/useModalFocus'
 import UnlockView from './views/UnlockView.vue'
+import WorkbenchView from './views/WorkbenchView.vue'
 import ListView from './views/ListView.vue'
 import EditView from './views/EditView.vue'
 import ConflictView from './views/ConflictView.vue'
@@ -111,6 +112,7 @@ const countdownText = computed(() => {
 const currentView = computed(() => {
   switch (view.value) {
     case 'unlock': return UnlockView
+    case 'workbench': return WorkbenchView
     case 'list': return ListView
     case 'edit': return EditView
     case 'conflict': return ConflictView
@@ -158,7 +160,7 @@ const currentView = computed(() => {
         <div class="pb-spinner" style="width:28px;height:28px"></div>
         <p>正在安全启动…</p>
       </div>
-      <transition v-else name="view" mode="out-in">
+      <transition v-else name="view">
         <component :is="currentView" :key="view"/>
       </transition>
     </main>
@@ -185,7 +187,7 @@ const currentView = computed(() => {
           <p v-if="store.deleteConfirm.subtree_count > 1" class="pb-sm pb-muted">
             将连同其下 {{ store.deleteConfirm.subtree_count - 1 }} 条子条目一并删除。
           </p>
-          <p class="pb-sm pb-muted">删除后将同步到所有成员；如需恢复可在服务端回收站查看（本地保留 30 天）。</p>
+          <p class="pb-sm pb-muted">删除为带墓碑（tombstone）的逻辑删除：保留审计与同步标记并同步到所有成员，如需恢复需在推送前撤销，历史可在服务端回收站查看。</p>
         </div>
         <div class="pb-modal__foot">
           <button class="pb-btn pb-btn--ghost" @click="store.deleteConfirm = null">取消</button>

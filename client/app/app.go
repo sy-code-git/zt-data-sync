@@ -220,6 +220,14 @@ func (a *App) HasRegSecret() bool {
 	return a.core.HasRegSecret()
 }
 
+// ClearIdentity 清除本地身份 + 设备状态 + 内存密钥（注册失败回滚：清空后下次启动视为全新用户）。
+func (a *App) ClearIdentity() error {
+	if a.core == nil {
+		return errors.New("核心库未就绪")
+	}
+	return a.core.ClearIdentity()
+}
+
 // ---- 管理员（§6.3 admin API） ----
 
 // AdminCreateUser 开户（用 REG_SECRET 计算 attestation）。
@@ -270,10 +278,10 @@ func (a *App) AdminRevoke(userID, confirmName string) ([]string, error) {
 	return a.core.AdminRevoke(userID, confirmName)
 }
 
-// RegisterRequest 提交注册申请（免登录，凭邀请码；pending=待审核 / approved=已开户）。
-func (a *App) RegisterRequest(inviteCode, username, publicKey, deviceName string) (string, string, error) {
+// RegisterRequest 提交注册申请（免登录，凭邀请码；返回 pending=待审核 / approved=已开户）。
+func (a *App) RegisterRequest(inviteCode, username, publicKey, deviceName string) (string, error) {
 	if a.core == nil {
-		return "", "", errors.New("核心库未就绪")
+		return "", errors.New("核心库未就绪")
 	}
 	return a.core.RegisterRequest(inviteCode, username, publicKey, deviceName)
 }
@@ -389,10 +397,7 @@ func (a *App) EnableAutoUnlock() error {
 	if a.core == nil {
 		return errors.New("核心库未就绪")
 	}
-	if a.keyfilePath == "" {
-		return errors.New("未记录 keyfile 路径，请先解锁")
-	}
-	return a.core.EnableAutoUnlock(a.keyfilePath)
+	return a.core.EnableAutoUnlock()
 }
 
 // DisableAutoUnlock 关闭自动解锁（立即失效）。

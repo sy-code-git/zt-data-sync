@@ -21,6 +21,7 @@ type mockClient struct {
 	pullResp *proto.SyncResponse
 	pullErr  error
 	pushResp *proto.PushResponse
+	pushes   [][]proto.Mutation // 记录推送内容（墓碑回归断言用）
 	uploads  []proto.KeysUploadRequest
 	users    []proto.UserInfo
 	tok      string
@@ -34,7 +35,10 @@ func (m *mockClient) Pull(int64, map[string]int) (*proto.SyncResponse, error) {
 	}
 	return m.pullResp, nil
 }
-func (m *mockClient) Push([]proto.Mutation) (*proto.PushResponse, error) {
+func (m *mockClient) Push(muts []proto.Mutation) (*proto.PushResponse, error) {
+	cp := make([]proto.Mutation, len(muts))
+	copy(cp, muts)
+	m.pushes = append(m.pushes, cp)
 	return m.pushResp, nil
 }
 func (m *mockClient) UploadKeys(groupID string, req *proto.KeysUploadRequest) error {

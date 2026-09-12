@@ -405,6 +405,17 @@ func (c *Core) HasRegSecret() bool {
 	return err == nil && len(enc) > 0
 }
 
+// ClearIdentity 清除本地身份 + 设备状态 + 内存密钥（注册失败回滚用：清空后下次启动视为全新用户）。
+func (c *Core) ClearIdentity() error {
+	c.Lock() // 清内存私钥/token/engine，状态回到未初始化
+	// 内存身份必须一并复位：Role()/Username() 读的是内存字段（c.role/c.username），
+	// 只清库会让「同一进程内」仍被视为已有身份 —— 注册失败后前端预检会拦下重试，
+	// 用户必须重启客户端才能重新注册（实测复现）。
+	c.username = ""
+	c.role = ""
+	return c.local.ClearIdentity()
+}
+
 // computeAttestation 用本地 REG_SECRET 计算成员注册凭证（§4.4）。
 func (c *Core) computeAttestation(name, pubKey string) (string, error) {
 	enc, err := c.local.GetRegSecretEnc()
@@ -526,22 +537,23 @@ func (c *Core) AdminRevoke(userID, confirmName string) ([]string, error) {
 }
 
 // RegisterRequest 提交注册申请（免登录，凭邀请码；§6.3 方案 C）。
-// 返回 (申请ID, 状态)。状态 pending=待审核 / approved=免审核码直接开户。
-func (c *Core) RegisterRequest(inviteCode, username, publicKey, deviceName string) (string, string, error) {
+// 返回状态：pending=待审核 / approved=免审核码直接开户。
+// 注意：Wails v2 仅支持 (T, error) 双返回值，故只返回状态（申请 id 无需前端使用）。
+func (c *Core) RegisterRequest(inviteCode, username, publicKey, deviceName string) (string, error) {
 	if c.serverURL == "" {
-		return "", "", errors.New("未配置服务端地址")
+		return "", errors.New("未配置服务端地址")
 	}
 	hc, err := c.newHTTPClient("")
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	resp, err := hc.RegisterRequest(&proto.RegisterRequestRequest{
 		InviteCode: inviteCode, Username: username, SM2PublicKey: publicKey, DeviceName: deviceName,
 	})
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return resp.ID, resp.Status, nil
+	return resp.Status, nil
 }
 
 // RegisterStatus 查询审核状态（免登录，按邀请码）。
@@ -628,9 +640,9 @@ func (c *Core) AdminListDevices() ([]proto.AdminDevice, error) {
 	return hc.AdminListDevices()
 }
 
-// EnableAutoUnlock 开启自动解锁（§9.1，须解锁态；记录当前 keyfile 路径）。
-func (c *Core) EnableAutoUnlock(keyfilePath string) error {
-	return c.vault.EnableAutoUnlock(keyfilePath)
+// EnableAutoUnlock 开启自动解锁（§9.1，须解锁态；私钥从库取，无需 keyfile 路径）。
+func (c *Core) EnableAutoUnlock() error {
+	return c.vault.EnableAutoUnlock()
 }
 
 // DisableAutoUnlock 关闭自动解锁（§9.1 关闭后立即失效）。

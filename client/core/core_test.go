@@ -48,6 +48,31 @@ func newTestCore(t *testing.T) (*Core, *vault.Vault) {
 	return c, c.vault
 }
 
+// ClearIdentity 必须同时复位「内存身份」与「本地库」：
+// Role()/Username() 读的是内存字段，只清库会让同一进程内仍被视为已有身份 →
+// 注册失败回滚后前端预检拦下重试，用户必须重启客户端（实测复现）。
+func TestClearIdentityResetsMemoryAndStore(t *testing.T) {
+	c, _ := newTestCore(t)
+	if c.Role() != "member" || c.Username() != "u1" {
+		t.Fatalf("前置身份 = role %q / username %q, want member / u1", c.Role(), c.Username())
+	}
+	if err := c.ClearIdentity(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Role() != "" {
+		t.Fatalf("ClearIdentity 后 Role() = %q, want 空（内存身份残留会导致注册无法重试）", c.Role())
+	}
+	if c.Username() != "" {
+		t.Fatalf("ClearIdentity 后 Username() = %q, want 空", c.Username())
+	}
+	if c.IsUnlocked() {
+		t.Fatal("ClearIdentity 后应处于锁定态（内存私钥已清）")
+	}
+	if id, err := c.local.GetIdentity(); err == nil && id != nil {
+		t.Fatalf("本地 identity 应已删除, got %+v", id)
+	}
+}
+
 func TestCoreUnlockLock(t *testing.T) {
 	c, _ := newTestCore(t)
 	if !c.IsUnlocked() {

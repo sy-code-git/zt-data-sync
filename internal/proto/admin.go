@@ -103,10 +103,12 @@ type DeviceBrief struct {
 	LastSeen int64  `json:"last_seen"`
 }
 
-// GroupMemberInfo 组成员清单元素（用户名/在线状态/在线 IP/设备名·机器名，§6.3）。
+// GroupMemberInfo 组成员清单元素（用户名/角色/在线状态/在线 IP/设备名·机器名，§6.3）。
 type GroupMemberInfo struct {
-	UserID  string        `json:"user_id"`
-	Name    string        `json:"name"`
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+	// Role 账户角色 admin|member：前端据此隐藏管理员的「移除/吊销」（管理员不可被移除/吊销）
+	Role    string        `json:"role"`
 	Online  bool          `json:"online"`
 	Devices []DeviceBrief `json:"devices"`
 }

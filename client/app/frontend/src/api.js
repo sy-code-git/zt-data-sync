@@ -52,6 +52,12 @@ async function call(fn, ...args) {
       return mock.get('username') || ''
     case 'Role':
       return mock.get('role') || ''
+    case 'ClearIdentity':
+      // 预览：回到未注册态（注册失败回滚路径）
+      mock.put('role', '')
+      mock.put('username', '')
+      mock.put('unlocked', false)
+      return null
     case 'Unlock':
       mock.put('unlocked', true)
       return { user_id: 'preview', device_id: 'preview-dev', groups: 1, need_register: false }
@@ -248,14 +254,26 @@ function utf8ToPlain(s) {
 }
 
 // 解析 EntryView.plaintext 为业务明文对象（type/title/parent_id/fields/custom_fields）
+// 并统一解码字段值：wire 约定字段值是 JSON 编码字符串（json.RawMessage），
+// 这里把每个字段值做一次 JSON.parse 还原为普通字符串，保证前端显示无引号。
 function parsePlaintext(p) {
   const s = plainToUtf8(p)
   if (!s) return {}
   try {
-    return JSON.parse(s)
+    const obj = JSON.parse(s)
+    if (obj && typeof obj === 'object') {
+      obj.fields = decodeFields(obj.fields)
+      obj.custom_fields = decodeFields(obj.custom_fields)
+    }
+    return obj
   } catch {
     return {}
   }
+}
+
+// 生产读取路径统一入口：与 parsePlaintext 相同（保留别名语义，便于理解两处用途）
+function decodePlaintext(p) {
+  return parsePlaintext(p)
 }
 
 // 将业务明文对象序列化为 plaintext 字节（base64）
@@ -274,6 +292,9 @@ export const api = {
   GenerateKeypair: (username, role, password) => call(WailsApp.GenerateKeypair, username, role, password),
   Username: () => call(WailsApp.Username),
   Role: () => call(WailsApp.Role),
+  // 清空本地身份（身份 + 设备 token 关联）：注册失败回滚、重置流程用。
+  // 与 wailsjs/go/main/App.js 的 ClearIdentity 一一对应（勿漏，漏了运行时会 TypeError）。
+  ClearIdentity: () => call(WailsApp.ClearIdentity),
   Unlock: (username, password) => call(WailsApp.Unlock, username, password),
   TryAutoUnlock: () => call(WailsApp.TryAutoUnlock),
   EnableAutoUnlock: () => call(WailsApp.EnableAutoUnlock),
@@ -283,11 +304,13 @@ export const api = {
   IsUnlocked: () => call(WailsApp.IsUnlocked),
   ListEntries: async () => {
     const list = await call(WailsApp.ListEntries)
-    return (list || []).map((ev) => ({...ev, ...parsePlaintext(ev.plaintext)}))
+    // 生产：plaintext 字段值按 wire 约定是 JSON 编码字符串（json.RawMessage 透传），统一解码为普通值，
+    // 与 mock 的 decodeFields 行为一致，保证前端各视图显示不带引号。
+    return (list || []).map((ev) => ({...ev, ...decodePlaintext(ev.plaintext)}))
   },
   GetEntry: async (id) => {
     const ev = await call(WailsApp.GetEntry, id)
-    return ev ? {...ev, ...parsePlaintext(ev.plaintext)} : ev
+    return ev ? {...ev, ...decodePlaintext(ev.plaintext)} : ev
   },
   PutEntry: (req) => {
     if (inWails) {

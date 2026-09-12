@@ -148,7 +148,8 @@ func (t *lockoutTracker) Reset(key string) {
 }
 
 // RateLimiter 全量限流策略集合（§8.3）：
-//   - 认证 5/min/IP：/auth/bootstrap、/auth/device-challenge、/auth/device
+//   - 认证 5/min/IP：/auth/bootstrap、/auth/device-challenge、/auth/device（签发身份凭据面）
+//   - 注册申请 60/min/IP：/auth/register-request、/auth/register-status（见 LimitRegister 注释）
 //   - 同步 120/min/token：/sync、/sync/push、/groups/:gid/keys、/keys/mine
 //   - 心跳 30/min/token：/auth/heartbeat
 //   - Admin 30/min/token：/admin/*
@@ -156,6 +157,7 @@ func (t *lockoutTracker) Reset(key string) {
 //   - 认证防暴破：连续 10 次失败锁 IP 10 分钟
 type RateLimiter struct {
 	auth     *fixedWindowLimiter
+	register *fixedWindowLimiter
 	sync     *fixedWindowLimiter
 	heart    *fixedWindowLimiter
 	admin    *fixedWindowLimiter
@@ -166,6 +168,7 @@ type RateLimiter struct {
 // RateConfig 限流参数（来自 server.Config，§12.2）。
 type RateConfig struct {
 	Auth       int
+	Register   int // 注册申请面（register-request/register-status）每 IP 计数
 	Sync       int
 	Heartbeat  int
 	Admin      int
@@ -179,12 +182,13 @@ func NewRateLimiter(cfg RateConfig, now func() time.Time) *RateLimiter {
 		now = time.Now
 	}
 	return &RateLimiter{
-		auth:    newFixedWindowLimiter(cfg.Auth, time.Minute, now),
-		sync:    newFixedWindowLimiter(cfg.Sync, time.Minute, now),
-		heart:   newFixedWindowLimiter(cfg.Heartbeat, time.Minute, now),
-		admin:   newFixedWindowLimiter(cfg.Admin, time.Minute, now),
-		lockout: newLockoutTracker(cfg.MaxFail, cfg.LockoutFor, now),
-		now:     now,
+		auth:     newFixedWindowLimiter(cfg.Auth, time.Minute, now),
+		register: newFixedWindowLimiter(cfg.Register, time.Minute, now),
+		sync:     newFixedWindowLimiter(cfg.Sync, time.Minute, now),
+		heart:    newFixedWindowLimiter(cfg.Heartbeat, time.Minute, now),
+		admin:    newFixedWindowLimiter(cfg.Admin, time.Minute, now),
+		lockout:  newLockoutTracker(cfg.MaxFail, cfg.LockoutFor, now),
+		now:      now,
 	}
 }
 
@@ -200,6 +204,12 @@ const (
 	LimitHeartbeat
 	// LimitAdmin Admin 接口 30/min/token。
 	LimitAdmin
+	// LimitRegister 注册申请接口 60/min/IP（register-request/register-status）。
+	// 单列原因：register-status 是待审客户端每 30s 的状态轮询（2 次/分/客户端），
+	// 20 个客户端同处一个 NAT 出口时合计 ≈40~45 次/分，若与身份供给面（LimitAuth 5/min/IP）
+	// 共桶，仅 5 个待审就会耗尽配额并连带拒绝 device-challenge/注册/登录。
+	// 该面自身另有邀请码 + REG_SECRET attestation 校验（§4.4），且邀请码 2^40 级不可枚举。
+	LimitRegister
 )
 
 // Middleware 返回限流 HTTP 中间件（超限 42901）。
@@ -229,6 +239,8 @@ func (rl *RateLimiter) allow(cat LimitCategory, key string) bool {
 	switch cat {
 	case LimitAuth:
 		l = rl.auth
+	case LimitRegister:
+		l = rl.register
 	case LimitSync:
 		l = rl.sync
 	case LimitHeartbeat:

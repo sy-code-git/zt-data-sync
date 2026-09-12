@@ -60,3 +60,5 @@ tmp/
 发布.bat
 发布.sh
 client/app/frontend/package.json.md5
+.codegraph/
+CODEBUDDY.md

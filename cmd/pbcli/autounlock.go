@@ -68,11 +68,7 @@ func autoUnlockEnable(args []string) error {
 	if _, err := app.vault.ImportKeyfile(*keyfile, pass); err != nil {
 		return err
 	}
-	abs, err := filepath.Abs(*keyfile)
-	if err != nil {
-		return err
-	}
-	if err := app.vault.EnableAutoUnlock(abs); err != nil {
+	if err := app.vault.EnableAutoUnlock(); err != nil {
 		return err
 	}
 	fmt.Println("已开启自动解锁。")

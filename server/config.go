@@ -32,6 +32,7 @@ type Config struct {
 	CORSOrigins map[string]struct{}
 
 	RateAuth      int // 认证接口限流 5/min/IP
+	RateRegister  int // 注册申请接口限流 60/min/IP（register-request/register-status）
 	RateSync      int // 同步接口限流 120/min/token
 	RateHeartbeat int // 心跳接口限流 30/min/token
 	RateAdmin     int // Admin 接口限流 30/min/token
@@ -61,6 +62,9 @@ func Load() (*Config, error) {
 	c.CORSOrigins = parseOrigins(os.Getenv("PB_CORS_ORIGINS"))
 
 	if c.RateAuth, err = intEnv("PB_RATE_AUTH", 5); err != nil {
+		return nil, err
+	}
+	if c.RateRegister, err = intEnv("PB_RATE_REGISTER", 60); err != nil {
 		return nil, err
 	}
 	if c.RateSync, err = intEnv("PB_RATE_SYNC", 120); err != nil {

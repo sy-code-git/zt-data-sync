@@ -67,7 +67,7 @@ func run() error {
 	authnSvc := authn.New(st, authn.Options{BootstrapCode: cfg.BootstrapCode})
 	syncSvc := sync.New(st, hub, nil)
 	limiter := middleware.NewRateLimiter(middleware.RateConfig{
-		Auth: cfg.RateAuth, Sync: cfg.RateSync, Heartbeat: cfg.RateHeartbeat,
+		Auth: cfg.RateAuth, Register: cfg.RateRegister, Sync: cfg.RateSync, Heartbeat: cfg.RateHeartbeat,
 		Admin: cfg.RateAdmin, MaxFail: 10, LockoutFor: 10 * time.Minute,
 	}, nil)
 	audit := middleware.NewAudit(st, nil)

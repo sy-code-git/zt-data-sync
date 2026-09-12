@@ -33,8 +33,9 @@ export const useAppStore = defineStore('app', {
       dirty_count: 0,
       server_seq: 0,
     },
-    view: 'unlock', // unlock | list | edit | conflict | settings | admin
+    view: 'unlock', // unlock | workbench | list | edit | conflict | settings | admin
     editing: null, // 当前编辑/冲突条目
+    newCtx: null, // 上下文感知新建：{type, parentProjId, parentEnvId, prefillIp}（编辑页消费后清空）
     serverURL: '',
     dataDir: '',
     adminMode: false, // 是否 --admin 启动（管理员模式：登录后进管理面板）
@@ -46,6 +47,10 @@ export const useAppStore = defineStore('app', {
     deleteConfirm: null, // 待删除确认的 EntryView
     selectedId: '', // 列表页当前选中条目 id（视图切换后恢复选中态）
     expandedIds: [], // 树展开的节点 id（视图切换后保持展开状态）
+    // 方案 J 浏览状态（跨视图保持）：当前项目 tab / 左树选中（env id 或 ''=项目本身）/ IP 聚焦
+    pjProject: '', // 项目 id
+    pjFocus: '', // 环境节点 id（'' = 项目本身 → 环境汇总）
+    pjIp: '', // 聚焦的 IP 值（'' = 未聚焦 IP）
   }),
 
   getters: {
@@ -133,7 +138,7 @@ export const useAppStore = defineStore('app', {
         const unlocked = await api.IsUnlocked()
         this.unlocked = unlocked
         if (unlocked) {
-          this.view = 'list'
+          this.view = 'workbench'
           await this.refreshEntries()
         } else {
           this.view = 'unlock'
@@ -148,13 +153,15 @@ export const useAppStore = defineStore('app', {
       }
     },
 
-    async refreshEntries() {
+    async refreshEntries({toastErr = false} = {}) {
       try {
         const list = await api.ListEntries()
         this.entries = list || []
         return true
       } catch (e) {
         this.entries = []
+        // 错误不吞：静默刷新（如后台 entries_changed 事件）不打断用户；主动刷新可提示
+        if (toastErr) this.toast(`加载条目失败：${String(e.message || e)}`, 'error')
         return false
       }
     },
@@ -196,13 +203,18 @@ export const useAppStore = defineStore('app', {
         this.isAdmin = false
       }
       await this.refreshStatus()
-      // 管理员模式（--admin）+ admin 角色 → 直接进管理面板；否则进密码本
-      this.view = (this.adminMode && this.isAdmin) ? 'admin' : 'list'
+      // 管理员模式（--admin）+ admin 角色 → 直接进管理面板；否则进工作台
+      this.view = (this.adminMode && this.isAdmin) ? 'admin' : 'workbench'
       await this.refreshEntries()
     },
 
     async lock() {
-      await api.Lock()
+      try {
+        await api.Lock()
+      } catch (e) {
+        // 锁定失败也必须立刻清空本地内存态（安全兜底：内存密钥绝不因后端失败滞留）
+        console.warn('调用后端 Lock 失败，已强制清空本地态:', e)
+      }
       this.unlocked = false
       this.entries = []
       this.selectedId = ''
@@ -220,6 +232,12 @@ export const useAppStore = defineStore('app', {
     async syncNow() {
       await api.SyncNow()
       await this.refreshStatus()
+    },
+
+    // 统一同步入口（同步 + 状态 + 条目刷新）：视图层只负责 toast，避免各视图重复实现
+    async syncAll() {
+      await this.syncNow()
+      await this.refreshEntries()
     },
 
     // 切换同步方式（auto=自动同步 | manual=手动同步），持久化并即时生效
@@ -244,6 +262,13 @@ export const useAppStore = defineStore('app', {
 
     openEdit(entry) {
       this.editing = entry
+      this.view = 'edit'
+    },
+
+    // 上下文感知新建（方案 J）：带归属/预填信息进编辑页
+    openNew(ctx) {
+      this.editing = null
+      this.newCtx = ctx || {}
       this.view = 'edit'
     },
 

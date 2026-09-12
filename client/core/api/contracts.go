@@ -137,7 +137,7 @@ type Core interface {
 	AdminListDevices() ([]proto.AdminDevice, error)
 	// 自动解锁（§9.1，Windows DPAPI）
 	TryAutoUnlock() (*UnlockResult, error)
-	EnableAutoUnlock(keyfilePath string) error
+	EnableAutoUnlock() error
 	DisableAutoUnlock() error
 	AutoUnlockEnabled() bool
 

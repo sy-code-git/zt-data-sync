@@ -6,12 +6,20 @@ export function AdminAddMember(arg1, arg2) {
   return window['go']['main']['App']['AdminAddMember'](arg1, arg2);
 }
 
+export function AdminApproveRegisterRequest(arg1, arg2) {
+  return window['go']['main']['App']['AdminApproveRegisterRequest'](arg1, arg2);
+}
+
 export function AdminArchiveGroup(arg1, arg2) {
   return window['go']['main']['App']['AdminArchiveGroup'](arg1, arg2);
 }
 
 export function AdminCreateGroup(arg1) {
   return window['go']['main']['App']['AdminCreateGroup'](arg1);
+}
+
+export function AdminCreateInvite(arg1, arg2, arg3) {
+  return window['go']['main']['App']['AdminCreateInvite'](arg1, arg2, arg3);
 }
 
 export function AdminCreateUser(arg1, arg2, arg3) {
@@ -26,12 +34,24 @@ export function AdminListGroups() {
   return window['go']['main']['App']['AdminListGroups']();
 }
 
+export function AdminListInvites() {
+  return window['go']['main']['App']['AdminListInvites']();
+}
+
 export function AdminListMembers(arg1) {
   return window['go']['main']['App']['AdminListMembers'](arg1);
 }
 
+export function AdminListRegisterRequests(arg1) {
+  return window['go']['main']['App']['AdminListRegisterRequests'](arg1);
+}
+
 export function AdminListUsers() {
   return window['go']['main']['App']['AdminListUsers']();
+}
+
+export function AdminRejectRegisterRequest(arg1) {
+  return window['go']['main']['App']['AdminRejectRegisterRequest'](arg1);
 }
 
 export function AdminRemoveMember(arg1, arg2, arg3) {
@@ -52,6 +72,10 @@ export function AutoUnlockEnabled() {
 
 export function Bootstrap(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['Bootstrap'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function ClearIdentity() {
+  return window['go']['main']['App']['ClearIdentity']();
 }
 
 export function DataDir() {
@@ -136,6 +160,14 @@ export function PutEntry(arg1) {
 
 export function RegisterDevice(arg1, arg2) {
   return window['go']['main']['App']['RegisterDevice'](arg1, arg2);
+}
+
+export function RegisterRequest(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RegisterRequest'](arg1, arg2, arg3, arg4);
+}
+
+export function RegisterStatus(arg1) {
+  return window['go']['main']['App']['RegisterStatus'](arg1);
 }
 
 export function ResolveConflict(arg1, arg2, arg3) {

@@ -47,6 +47,18 @@ func (s *sqliteLocal) SetIdentity(i *Identity) error {
 	return err
 }
 
+// ClearIdentity 清除本地身份 + 设备状态（注册失败回滚：清空后下次启动视为全新用户）。
+// 同时清 device_state 避免孤儿 token；组密钥等同步状态由 engine 重新建立时拉取。
+func (s *sqliteLocal) ClearIdentity() error {
+	if _, err := s.db.Exec(`DELETE FROM identity`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM device_state`); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *sqliteLocal) GetLastSeq() (int64, error) {
 	var v int64
 	if err := s.db.QueryRow(`SELECT last_seq FROM sync_state WHERE id = 1`).Scan(&v); err != nil {

@@ -1,17 +1,22 @@
 <script setup>
-import {ref, computed, onMounted, nextTick} from 'vue'
+// 编辑页（方案 J 版）：
+// - 新建态：归属级联下拉（项目 › 环境，自绘 PbSelect）+ 类型下拉 + ip 上下文预填
+// - 编辑态：只读归属链
+// - 保存后自动定位到新条目所在环境/IP（方案 J 列表页状态联动）
+import {ref, computed, onMounted} from 'vue'
 import {useAppStore} from '../store'
 import {api} from '../api'
+import PbSelect from '../components/PbSelect.vue'
 import PasswordGenerator from '../components/PasswordGenerator.vue'
 
 const store = useAppStore()
 
-// 编辑上下文：store.editing 为条目；若为 null 则是新建
-const isNew = computed(() => !store.editing?.id || store.editing._new)
+const isNew = computed(() => !store.editing?.id || store.editing?._new)
 const form = ref({
   title: '',
   type: 'account',
   group_id: '',
+  parent_id: null,
   fields: {},
   custom_fields: {},
 })
@@ -33,66 +38,91 @@ const typeMeta = {
 
 const showGen = ref(false)
 
+/* ---- 归属状态（新建级联选择） ---- */
+const parentProj = ref('') // 项目 id
+const parentEnv = ref('') // 环境 id
+
+const entries = computed(() => store.entries.filter((e) => !e.deleted))
+const projects = computed(() => entries.value.filter((e) => e.type === 'project'))
+const envsOf = (pid) => entries.value.filter((e) => e.type === 'env' && e.parent_id === pid)
+
+const projOptions = computed(() => projects.value.map((p) => ({value: p.id, label: p.title})))
+const envOptions = computed(() => envsOf(parentProj.value).map((e) => ({value: e.id, label: e.title})))
+const typeOptions = computed(() => Object.entries(typeMeta).map(([k, m]) => ({value: k, label: m.label, icon: m.icon})))
+
+// 新建时切换项目：环境重置为该项目第一个
+function onProjChange(pid) {
+  parentProj.value = pid
+  const first = envsOf(pid)[0]
+  parentEnv.value = first ? first.id : ''
+}
+
+// 归属链展示（编辑态只读）：idIndex 直查，避免逐层全表 find
+const idIndex = computed(() => {
+  const m = new Map()
+  for (const e of entries.value) m.set(e.id, e)
+  return m
+})
+function pathOf(e) {
+  const path = []
+  let p = e?.parent_id
+  while (p) {
+    const n = idIndex.value.get(p)
+    if (!n) break
+    path.unshift(n)
+    p = n.parent_id
+  }
+  return path
+}
+const editPath = computed(() => pathOf(store.editing))
+
 onMounted(() => {
+  const ctx = store.newCtx || {}
   if (store.editing && !isNew.value) {
+    const e = store.editing
     form.value = {
-      title: store.editing.title,
-      type: store.editing.type,
-      group_id: store.editing.group_id,
-      parent_id: store.editing.parent_id || null, // 保留挂载位置，编辑后不可掉到根级
-      fields: {...(store.editing.fields || {})},
-      custom_fields: {...(store.editing.custom_fields || {})},
+      title: e.title,
+      type: e.type,
+      group_id: e.group_id,
+      parent_id: e.parent_id || null,
+      fields: {...(e.fields || {})},
+      custom_fields: {...(e.custom_fields || {})},
     }
+    const path = pathOf(e)
+    parentProj.value = path.find((n) => n.type === 'project')?.id || ''
+    parentEnv.value = path.find((n) => n.type === 'env')?.id || ''
   } else {
-    // 新建：默认挂在当前选中条目下（若有）；无 id 的上下文（{_new:true}）视为新建根项目
-    const parent = store.editing?.id ? store.editing : null
-    const parentType = parent?.type
-    // 五层骨架推进：project→env→ip_type→acc_type→account；custom 旁挂四层（§5.1）
-    const nextType = parent ? nextTypeOf(parentType) : 'project'
+    // 新建：优先用上下文（方案 J 入口带归属与预填），否则回退当前浏览位置
+    const projId = ctx.parentProjId || store.pjProject || (projects.value[0]?.id ?? '')
+    parentProj.value = projId
+    const envList = envsOf(projId)
+    parentEnv.value = ctx.parentEnvId || (envList[0]?.id ?? '')
     form.value = {
       title: '',
-      type: nextType,
-      // 组回退链：父条目组 → 同步状态组 → 任意已存在条目的组
-      group_id: parent?.group_id || store.status.groups?.[0]?.id || store.entries.find((e) => e.group_id)?.group_id || '',
+      type: ctx.type || 'account',
+      // 组回退链：上下文环境组 → 同步状态组 → 任意已存在条目的组
+      group_id: (ctx.parentEnvId && entries.value.find((e) => e.id === ctx.parentEnvId)?.group_id)
+        || store.status.groups?.[0]?.id
+        || entries.value.find((e) => e.group_id)?.group_id
+        || '',
+      parent_id: null,
       fields: {},
       custom_fields: {},
     }
-    if (parent) {
-      form.value.parent_id = parent.id
-    }
-    if (nextType === 'account') {
-      form.value.fields = {username: '', password: '', ip: '', port: ''}
+    if (form.value.type === 'account') {
+      form.value.fields = {
+        username: '',
+        password: '',
+        ip: ctx.prefillIp || '',
+        port: '',
+      }
     }
   }
 })
 
-// 可选五层模板：推荐子类型（不强制定层/跳层；仅用于新建时默认类型推荐）
-function childTypesOf(t) {
-  switch (t) {
-    case 'project': return ['env', 'custom']
-    case 'env': return ['ip_type', 'custom']
-    case 'ip_type': return ['acc_type', 'custom']
-    case 'acc_type': return ['account', 'custom']
-    default: return [] // account / custom / 无父（顶层）
-  }
-}
-
-function nextTypeOf(t) {
-  const list = childTypesOf(t)
-  return list[0] || 'project'
-}
-
-// 所属组选项（同步状态里的可用组；组名缺失时回退组 id 前缀展示）
-const groupOptions = computed(() =>
-  (store.status.groups || []).map((g) => ({id: g.id, label: g.name || g.id.slice(0, 8)}))
-)
-
-// 自由模式：所有类型可选（五层仅作推荐，不强制定层；编辑态下拉 disabled 仅展示当前类型）
-const typeOptions = computed(() => Object.keys(typeMeta))
-
+/* ---- 表单字段操作 ---- */
 const fieldKeys = computed(() => {
   if (form.value.type === 'account') {
-    // 固定模板字段 + 用户动态添加的字段（§4 UI 约定）
     const extra = Object.keys(form.value.fields || {}).filter((k) => !accountTemplate.includes(k))
     return [...accountTemplate, ...extra]
   }
@@ -104,13 +134,11 @@ async function addField() {
   let n = 1
   while (form.value.fields[`field_${n}`]) n++
   form.value.fields[`field_${n}`] = ''
-  await nextTick()
 }
 
 function removeField(key) {
-  const f = {...form.value.fields}
-  delete f[key]
-  form.value.fields = f
+  // 对齐原型：删除字段需弹窗确认，防误触丢值
+  fieldConfirm.value = {kind: 'field', key}
 }
 
 async function addCustom() {
@@ -118,13 +146,44 @@ async function addCustom() {
   let n = 1
   while (form.value.custom_fields[`custom_${n}`]) n++
   form.value.custom_fields[`custom_${n}`] = ''
-  await nextTick()
 }
 
 function removeCustom(key) {
-  const f = {...form.value.custom_fields}
-  delete f[key]
-  form.value.custom_fields = f
+  fieldConfirm.value = {kind: 'custom', key}
+}
+
+// 字段删除确认弹窗状态（field=字段 / custom=自定义字段）
+const fieldConfirm = ref(null)
+
+function confirmRemoveField() {
+  const c = fieldConfirm.value
+  if (!c) return
+  const src = c.kind === 'field' ? form.value.fields : form.value.custom_fields
+  const f = {...src}
+  delete f[c.key]
+  if (c.kind === 'field') form.value.fields = f
+  else form.value.custom_fields = f
+  fieldConfirm.value = null
+}
+
+/* ---- 保存 ---- */
+// 保存后定位：account → 选中环境（并尽量定位到其 IP）；env → 项目本身；project → 切到该项目
+function locateAfterSave(savedType) {
+  const ctx = store.newCtx || {}
+  store.newCtx = null
+  if (savedType === 'account' && parentEnv.value) {
+    store.pjFocus = parentEnv.value
+    store.pjIp = ctx.prefillIp || form.value.fields?.ip || ''
+  } else if (savedType === 'env') {
+    if (parentProj.value) store.pjProject = parentProj.value
+    store.pjFocus = ''
+    store.pjIp = ''
+  } else if (savedType === 'project') {
+    store.pjProject = ''
+    store.pjFocus = ''
+    store.pjIp = ''
+  }
+  store.goto('list')
 }
 
 async function save() {
@@ -133,25 +192,45 @@ async function save() {
     error.value = '标题不能为空'
     return
   }
+  // 新建时必须有归属（account→环境；env→项目；project→根）
+  if (isNew.value) {
+    if (form.value.type === 'account' && !parentEnv.value) {
+      error.value = '请先在归属中选择项目与环境（无环境可先创建环境）'
+      return
+    }
+    if (form.value.type === 'env' && !parentProj.value) {
+      error.value = '缺少项目归属（无项目可先创建项目）'
+      return
+    }
+  }
   if (!form.value.group_id) {
-    error.value = '缺少组 ID（请在列表中选择条目后新建子项）'
+    // 本地同步状态中没有可用组：新成员尚未被管理员加入任何组，或入组后还没同步。
+    // （连接正常也会走到这里，故不再提示"检查服务端连接"，避免误导排查方向）
+    error.value = '尚无可写入的组：请先让管理员把你加入某个组，然后在工具栏点「⟳ 同步」拉取组信息后重试'
     return
   }
   saving.value = true
   try {
+    // 新建时推导 parent_id：account/custom→环境；env→项目；project→根
+    let parentId = form.value.parent_id || null
+    if (isNew.value) {
+      if (form.value.type === 'project') parentId = null
+      else if (form.value.type === 'env') parentId = parentProj.value || null
+      else parentId = parentEnv.value || parentProj.value || null
+    }
     const req = {
       id: isNew.value ? '' : store.editing.id,
       group_id: form.value.group_id,
       type: form.value.type,
       title: form.value.title.trim(),
-      parent_id: form.value.parent_id || null,
+      parent_id: parentId,
       fields: cleanFields(form.value.fields),
       custom_fields: cleanFields(form.value.custom_fields),
     }
     await api.PutEntry(req)
     store.toast('已保存并待推送同步', 'success')
     await store.refreshEntries()
-    store.goto('list')
+    locateAfterSave(req.type)
   } catch (e) {
     error.value = String(e.message || e)
   } finally {
@@ -174,12 +253,6 @@ function fillPassword(pw) {
   form.value.fields.password = pw
   showGen.value = false
 }
-
-// 组 id → 组名（编辑态只读展示用）
-function groupLabel(gid) {
-  const g = (store.status.groups || []).find((x) => x.id === gid)
-  return g ? (g.name || g.id) : (gid || '')
-}
 </script>
 
 <template>
@@ -201,6 +274,36 @@ function groupLabel(gid) {
       <div class="edit-body">
         <div v-if="error" class="edit-error">{{ error }}</div>
 
+        <!-- 归属：新建 = 级联下拉；编辑 = 只读链 -->
+        <div v-if="isNew" class="edit-parent">
+          <span class="pb-label" style="margin: 0">归属</span>
+          <div style="min-width: 160px">
+            <PbSelect
+                v-model="parentProj"
+                :options="projOptions"
+                placeholder="选择项目"
+                @change="onProjChange"
+            />
+          </div>
+          <template v-if="form.type !== 'project'">
+            <span style="color: var(--text-3)">›</span>
+            <div v-if="form.type !== 'env'" style="min-width: 160px">
+              <PbSelect
+                  v-if="envOptions.length"
+                  v-model="parentEnv"
+                  :options="envOptions"
+                  hint="账号将保存在此环境下"
+              />
+              <span v-else class="pb-xs pb-muted" style="padding: 8px 12px; border: 1px dashed var(--glass-border); border-radius: var(--radius-sm)">
+                该项目暂无环境
+              </span>
+            </div>
+          </template>
+        </div>
+        <div v-else class="edit-parent__chain">
+          归属：<b>{{ editPath.map((n) => n.title).join(' › ') || '—（根级）' }}</b>
+        </div>
+
         <div class="pb-field">
           <label class="pb-label">标题</label>
           <input v-model="form.title" class="pb-input" placeholder="如：生产环境 / root 账号" autofocus/>
@@ -208,26 +311,18 @@ function groupLabel(gid) {
 
         <div class="pb-field">
           <label class="pb-label">类型</label>
-          <select v-model="form.type" class="pb-input" :disabled="!isNew" style="appearance: auto; cursor: pointer;">
-            <option v-for="t in typeOptions" :key="t" :value="t">{{ typeMeta[t].icon }} {{ typeMeta[t].label }}</option>
-          </select>
+          <PbSelect
+              v-model="form.type"
+              :options="typeOptions"
+              :disabled="!isNew"
+              :hint="isNew ? '常用：🔑 账号 / 🌐 环境' : ''"
+          />
           <p v-if="!isNew" class="pb-xs pb-muted">类型创建后不可变更</p>
-        </div>
-
-        <!-- 所属组（新建可切换；编辑态只读展示当前组） -->
-        <div v-if="isNew && groupOptions.length" class="pb-field">
-          <label class="pb-label">所属组</label>
-          <select v-model="form.group_id" class="pb-input" style="appearance: auto; cursor: pointer;">
-            <option v-for="g in groupOptions" :key="g.id" :value="g.id">{{ g.label }}</option>
-          </select>
-        </div>
-        <div v-else-if="!isNew && form.group_id" class="pb-field">
-          <label class="pb-label">所属组</label>
-          <input class="pb-input" :value="groupLabel(form.group_id)" disabled />
         </div>
 
         <!-- account：固定模板字段（§4） -->
         <template v-if="form.type === 'account'">
+          <p v-if="isNew && store.newCtx?.prefillIp" class="pb-xs pb-muted">已按当前 IP（{{ store.newCtx.prefillIp }}）预填</p>
           <div v-for="key in fieldKeys" :key="key" class="pb-field">
             <label class="pb-label">{{ key }}</label>
             <div class="pb-input-group">
@@ -235,7 +330,7 @@ function groupLabel(gid) {
                   v-model="form.fields[key]"
                   class="pb-input pb-input--mono"
                   :type="key === 'password' ? 'password' : 'text'"
-                  :placeholder="key === 'password' ? '••••••••' : key"
+                  :placeholder="key === 'password' ? '••••••••' : (key === 'ip' ? '所属服务器 IP' : key)"
                   autocomplete="off"
               />
               <button
@@ -244,8 +339,9 @@ function groupLabel(gid) {
                   title="生成密码"
                   @click="showGen = true"
               >⚡</button>
+              <!-- 核心字段 username/password/ip 不可删除（IP 是方案 J 聚合维度，删掉会丢聚合入口）；port/remark 等可选字段可删 -->
               <button
-                  v-if="key !== 'username' && key !== 'password'"
+                  v-if="!['username', 'password', 'ip'].includes(key)"
                   class="pb-input-group__action"
                   title="删除字段"
                   @click="removeField(key)"
@@ -280,6 +376,23 @@ function groupLabel(gid) {
         @generate="fillPassword"
         @close="showGen = false"
     />
+
+    <!-- 删除字段确认弹窗（对齐原型 removeField 确认） -->
+    <div v-if="fieldConfirm" class="pb-modal-mask" @click.self="fieldConfirm = null">
+      <div class="pb-modal pb-glass pb-glass--strong" role="dialog" aria-modal="true">
+        <div class="pb-modal__head">
+          <span class="pb-modal__title">删除字段</span>
+          <button class="pb-iconbtn" @click="fieldConfirm = null">✕</button>
+        </div>
+        <div class="pb-modal__body">
+          <p class="pb-sm">确定删除字段「{{ fieldConfirm.key }}」吗？保存后生效且不可撤销。</p>
+        </div>
+        <div class="pb-modal__foot">
+          <button class="pb-btn pb-btn--ghost" @click="fieldConfirm = null">取消</button>
+          <button class="pb-btn pb-btn--danger" @click="confirmRemoveField">确定删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 

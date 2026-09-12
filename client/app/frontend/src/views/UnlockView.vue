@@ -23,7 +23,17 @@ const inviteCode = ref('')
 const regSubmitted = ref(false) // 是否已提交注册申请
 const regStatus = ref('')       // pending | approved | rejected
 const regPollTimer = ref(null)
+const keyfilePath = ref('')    // 公私钥备份地址（完整 .key 路径，可选；不填则仅入库）
+const genModal = ref(false)     // 公私钥生成结果弹窗（无邀请码手动流程）
+const genResult = ref({ username: '', pub: '', path: '' })
 const forceLogin = ref(false) // 跳过注册，强制进入登录界面
+// seg 手动覆盖：''（按本地身份自动推导）| 'login' | 'register'（用户点「登录/注册」分段后生效）
+const manualPage = ref('')
+// 注册子页面：invite=邀请码注册 | manual=公私钥手动注册（两个独立页面）
+const regPage = ref('invite')
+// 邀请码注册失败弹窗：提示是否切换到手动注册流程
+const regFailModal = ref(false)
+const regFailMsg = ref('')
 
 // 导入私钥备份（跳过注册后，用已有私钥恢复身份登录）
 const importOpen = ref(false)
@@ -54,20 +64,54 @@ const autoBusy = ref(false)
 // forceLogin：用户在注册界面点「跳过」→ 强制进入登录界面（可导入私钥备份登录）。
 const mode = computed(() => {
   if (store.adminMode) return identityRole.value === 'admin' ? 'adminLogin' : 'adminDeploy'
-  if (forceLogin.value) return 'userLogin'
+  if (manualPage.value === 'register') return 'userRegister'
+  if (manualPage.value === 'login' || forceLogin.value) return 'userLogin'
   return identityRole.value === 'member' ? 'userLogin' : 'userRegister'
 })
+
+// 卡片头标题/徽章随模式切换（对齐原型：注册→注册新账号/新成员；登录→安全解锁/端到端加密）
+const cardTitle = computed(() => {
+  if (mode.value === 'adminDeploy') return '管理员首次部署'
+  if (mode.value === 'adminLogin') return '管理员登录'
+  if (mode.value === 'userRegister') return regPage.value === 'manual' ? '手动注册 · 生成密钥对' : '注册新账号'
+  return '安全解锁'
+})
+const cardBadge = computed(() =>
+    (mode.value === 'userRegister' || mode.value === 'adminDeploy') ? '新成员' : '端到端加密')
 
 const modeTitle = computed(() => ({
   adminDeploy: '管理员首次部署',
   adminLogin: '管理员登录',
-  userRegister: '注册新账号',
+  userRegister: regPage.value === 'manual' ? '手动生成密钥对' : '邀请码注册',
   userLogin: '登录',
 }[mode.value] || ''))
 
+// seg 分段切换（登录/注册）：手动选择优先于身份自动推导
+function setPage(p) {
+  manualPage.value = p
+  tip.value = ''
+  if (p === 'login') {
+    switchRegPage('invite')
+  } else {
+    forceLogin.value = false
+    importOpen.value = false
+  }
+}
+
+// 有私钥导入：切到登录页并展开私钥导入区块
+function goImport() {
+  setPage('login')
+  importOpen.value = true
+}
+
 onMounted(async () => {
-  serverURL.value = store.serverURL || ''
-  hasSavedURL.value = !!store.serverURL
+  // 锁定后重新挂载：从本地库实时读已保存地址（store.serverURL 是启动时缓存，注册 SetServerURL 后未同步会拿不到最新值）
+  try {
+    serverURL.value = (await api.GetServerURL()) || ''
+  } catch {
+    serverURL.value = store.serverURL || ''
+  }
+  hasSavedURL.value = !!serverURL.value
   try {
     caPath.value = (await api.GetCA()) || ''
   } catch {
@@ -78,6 +122,7 @@ onMounted(async () => {
     identityRole.value = (await api.Role()) || ''
     try {
       localUsername.value = (await api.Username()) || ''
+      if (localUsername.value) username.value = localUsername.value // 默认填工号（可改）
     } catch {
       localUsername.value = ''
     }
@@ -140,7 +185,8 @@ async function verifyServer() {
   tipType.value = 'info'
   try {
     await api.VerifyServer(serverURL.value.trim(), caPath.value.trim())
-    tip.value = '服务端连接正常，配置已就绪'
+    // 提示与实际行为对齐：验证只做连通性检查，地址/CA 由后续业务动作（解锁/注册/导入/生成密钥）保存
+    tip.value = '服务端连接正常（地址会在继续操作时自动保存）'
     tipType.value = 'ok'
   } catch (e) {
     tip.value = String(e.message || e)
@@ -157,7 +203,7 @@ async function doUnlock() {
     tipType.value = 'err'
     return
   }
-  const uname = (mode.value === 'userLogin' && localUsername.value) ? localUsername.value : username.value.trim()
+  const uname = username.value.trim()
   if (!uname) {
     tip.value = '请输入工号'
     tipType.value = 'err'
@@ -198,7 +244,7 @@ async function doUnlock() {
   }
 }
 
-// 普通用户注册：生成公私钥（私钥加密存本地）+ 解锁，返回公钥（交管理员开户）
+// 手动生成公私钥（无邀请码路径：生成后复制「注册信息」给管理员开户，与邀请码注册互斥）
 async function doGenerateKeypair() {
   const err = serverInvalid.value
   if (err) {
@@ -216,11 +262,6 @@ async function doGenerateKeypair() {
     tipType.value = 'err'
     return
   }
-  if (mode.value === 'userRegister' && !inviteCode.value.trim()) {
-    tip.value = '请输入注册码（管理员发放的邀请码）'
-    tipType.value = 'err'
-    return
-  }
   busy.value = true
   tip.value = '正在生成密钥对…'
   tipType.value = 'info'
@@ -235,15 +276,88 @@ async function doGenerateKeypair() {
     generatedPub.value = pubB64 || ''
     needRegister.value = true
     regUsername.value = username.value.trim()
-    // 方案 C：凭邀请码提交注册申请（pending 等审核 / approved 免审核直通）
-    const [, status] = await api.RegisterRequest(
+    // 备份地址填写了 → 自动导出 .key 到该路径（可选，不填仅入库，解锁后设置中可导出）
+    let savedPath = ''
+    if (keyfilePath.value.trim()) {
+      try {
+        await api.ExportKeyfile(keyfilePath.value.trim())
+        savedPath = keyfilePath.value.trim()
+      } catch (e) {
+        tip.value = '密钥已生成，但备份导出失败：' + String(e.message || e)
+        tipType.value = 'err'
+      }
+    }
+    // 弹窗展示公私钥信息（复制给管理员开户）
+    genResult.value = { username: username.value.trim(), pub: pubB64 || '', path: savedPath }
+    genModal.value = true
+    if (!savedPath) {
+      tip.value = '公私钥已生成（未填备份地址，仅加密入库；可在弹窗中导出备份）'
+      tipType.value = 'ok'
+    }
+  } catch (e) {
+    tip.value = String(e.message || e)
+    tipType.value = 'err'
+  } finally {
+    busy.value = false
+  }
+}
+
+// 邀请码注册（自动流程：生成密钥对 → 提交申请一步到位；pending 等审核 / approved 免审核直通）
+async function doRegisterApply() {
+  const err = serverInvalid.value
+  if (err) {
+    tip.value = err
+    tipType.value = 'err'
+    return
+  }
+  if (!username.value.trim()) {
+    tip.value = '请输入工号'
+    tipType.value = 'err'
+    return
+  }
+  if (!password.value) {
+    tip.value = '请设置口令（保护本地私钥）'
+    tipType.value = 'err'
+    return
+  }
+  if (!inviteCode.value.trim()) {
+    tip.value = '请输入注册码（管理员发放的邀请码）'
+    tipType.value = 'err'
+    return
+  }
+  busy.value = true
+  tip.value = '正在生成密钥并提交申请…'
+  tipType.value = 'info'
+  try {
+    // 防覆盖：本地已有身份（如手动流程已生成）时禁止再注册——
+    // generateKeypair 会覆盖旧私钥，失败回滚（ClearIdentity）更会把旧身份一并删除，
+    // 若服务端已按旧公钥开户将导致身份不可恢复丢失。已有身份请走登录/私钥导入。
+    let existingRole = ''
+    try { existingRole = (await api.Role()) || '' } catch {}
+    if (existingRole) {
+      tip.value = '本地已有身份，不能重复注册（重新注册会覆盖旧私钥且失败时会被清空）；请直接登录或用「有私钥导入」恢复'
+      tipType.value = 'err'
+      return
+    }
+    const url = serverURL.value.trim()
+    if (!hasSavedURL.value || serverMode.value === 'new') {
+      await api.SetServerURL(url)
+      await api.SetCA(caPath.value.trim())
+    }
+    const pubB64 = await store.generateKeypair(username.value.trim(), 'member', password.value)
+    password.value = ''
+    generatedPub.value = pubB64 || ''
+    needRegister.value = true
+    regUsername.value = username.value.trim()
+    // 凭邀请码提交注册申请（pending 等审核 / approved 免审核直通）
+    const status = await api.RegisterRequest(
         inviteCode.value.trim(), username.value.trim(), pubB64,
-        regDeviceName.value.trim() || undefined)
+        regDeviceName.value.trim() || '')
     regSubmitted.value = true
     regStatus.value = status
     if (status === 'approved') {
       tip.value = '已开户（免审核码），正在注册设备…'
-      await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || undefined)
+      await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || '')
       tip.value = '注册成功，已进入密码本'
       tipType.value = 'ok'
     } else {
@@ -252,15 +366,61 @@ async function doGenerateKeypair() {
       startRegPoll()
     }
   } catch (e) {
+    // 注册失败回滚：generateKeypair 已在 RegisterRequest 之前写入本地库（identity+keyfileBlob），
+    // 不清掉会让重启后误判为已注册用户（直接进登录页）。清空 identity+device_state 回到未注册态。
+    // 回滚失败不致命（重启后仍进登录页，可手动重置），但按错误不吞原则留 warn 便于排查。
+    let rolledBack = true
+    try { await api.ClearIdentity() } catch (rollbackErr) {
+      rolledBack = false
+      console.warn('注册失败回滚 ClearIdentity 失败（重启后将停留在登录页，可用重置脚本清理）:', rollbackErr)
+    }
+    // 复位本次尝试留下的前端状态：不清 needRegister/generatedPub 会让界面停在「注册设备」页，
+    // 与失败弹窗给出的「重新填写邀请码」选项不自洽，也会让用户误以为身份已生成。
+    generatedPub.value = ''
+    needRegister.value = false
+    regSubmitted.value = false
+    regStatus.value = ''
     const msg = String(e.message || e)
-    tip.value = /邀请码|注册码/.test(msg) ? msg + '（请联系管理员核对注册码）' : msg
+    tip.value = rolledBack ? msg : msg + '（本地回滚失败：请重启客户端后重试，或联系管理员）'
     tipType.value = 'err'
+    regFailMsg.value = /邀请码|注册码/.test(msg) ? msg + '（请联系管理员核对注册码）' : msg
+    regFailModal.value = true
   } finally {
     busy.value = false
   }
 }
 
-// 轮询审核状态（30s）：approved → 自动注册设备；rejected → 提示
+// 邀请码注册失败 → 确认进入公私钥手动注册流程
+function confirmGoManual() {
+  regFailModal.value = false
+  regPage.value = 'manual'
+  tip.value = '已切换到公私钥手动注册流程（生成后复制公钥给管理员开户）'
+  tipType.value = 'info'
+}
+
+// 邀请码注册失败 → 取消，停留邀请码注册页等待更正信息
+function cancelGoManual() {
+  regFailModal.value = false
+  tip.value = regFailMsg.value
+  tipType.value = 'err'
+}
+
+// 切换注册子页面（invite ↔ manual），并清理目标页不相关的残留状态
+function switchRegPage(page) {
+  stopRegPoll()
+  regPage.value = page
+  if (page === 'invite') {
+    generatedPub.value = ''
+    needRegister.value = false
+    regSubmitted.value = false
+    genModal.value = false
+  }
+}
+
+// 轮询审核状态（30s）：approved → 自动注册设备；rejected → 提示。
+// 注意：/auth/* 在服务端有限流（多客户端并发注册时 /auth/device 可能撞 42901），
+// 设备注册失败绝不能停轮询——否则用户永久卡在「审核已通过，正在注册设备…」，
+// 必须保留下轮自动重试（每 30s 一次），成功后再停。
 function startRegPoll() {
   stopRegPoll()
   regPollTimer.value = setInterval(async () => {
@@ -268,19 +428,39 @@ function startRegPoll() {
       const st = await api.RegisterStatus(inviteCode.value.trim())
       regStatus.value = st
       if (st === 'approved') {
-        stopRegPoll()
-        tip.value = '审核已通过，正在注册设备…'
-        tipType.value = 'info'
-        await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || undefined)
-        tip.value = '注册成功，已进入密码本'
-        tipType.value = 'ok'
+        if (tip.value !== '审核已通过，正在注册设备…') {
+          tip.value = '审核已通过，正在注册设备…'
+          tipType.value = 'info'
+        }
+        try {
+          await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || '')
+          stopRegPoll()
+          tip.value = '注册成功，已进入密码本'
+          tipType.value = 'ok'
+        } catch (regErr) {
+          console.warn('审核已通过但设备注册失败，下一轮自动重试:', regErr)
+        }
       } else if (st === 'rejected') {
         stopRegPoll()
-        tip.value = '申请已被拒绝，请联系管理员'
+        // 被拒必须同样回滚本地身份：否则用户既无法登录（无设备 token），也无法重新注册
+        // （会被「本地已有身份」预检拦住），只能手删数据目录（与邀请码无效路径同款问题）。
+        let rolledBack = true
+        try { await api.ClearIdentity() } catch (rollbackErr) {
+          rolledBack = false
+          console.warn('申请被拒后回滚 ClearIdentity 失败（可重启客户端后用重置脚本清理）:', rollbackErr)
+        }
+        // 复位到「未提交」态，使用户可直接换新邀请码重试
+        generatedPub.value = ''
+        needRegister.value = false
+        regSubmitted.value = false
+        regStatus.value = ''
+        tip.value = rolledBack
+          ? '申请已被拒绝，本地未完成注册，可直接用新的邀请码重试；请联系管理员确认原因'
+          : '申请已被拒绝；本地回滚失败，请重启客户端后重试'
         tipType.value = 'err'
       }
     } catch (e) {
-      // 网络波动忽略，下轮重试
+      // 网络波动/限流忽略，下轮重试
     }
   }, 30000)
 }
@@ -293,6 +473,17 @@ function stopRegPoll() {
 }
 
 onUnmounted(stopRegPoll)
+
+// 选择公私钥备份地址（完整 .key 路径）
+async function pickKeyfilePath() {
+  try {
+    const path = await api.SaveFileDialog('选择私钥备份保存位置')
+    if (path) keyfilePath.value = path
+  } catch (e) {
+    tip.value = String(e.message || e)
+    tipType.value = 'err'
+  }
+}
 
 // 保存私钥备份到指定文件（换设备恢复用）
 async function doExportKeyfile() {
@@ -329,10 +520,22 @@ async function doImportKeyfile() {
     tipType.value = 'err'
     return
   }
+  const url = serverURL.value.trim()
+  if (!url) {
+    tip.value = '请先填写服务端地址'
+    tipType.value = 'err'
+    return
+  }
   busy.value = true
   tip.value = '正在导入私钥并恢复身份…'
   tipType.value = 'info'
   try {
+    // §9.2：与解锁/注册/生成密钥流程保持一致——首次配置（或改了地址）时先持久化地址 + CA。
+    // 缺这一步时：导入后「注册设备」拿不到地址，报「未配置服务端地址」，新设备恢复流程走不完。
+    if (!hasSavedURL.value || serverMode.value === 'new') {
+      await api.SetServerURL(url)
+      await api.SetCA(caPath.value.trim())
+    }
     const res = await api.ImportKeyfile(importKeyfilePath.value, username.value.trim(), 'member', importPass.value)
     importPass.value = ''
     importKeyfilePath.value = ''
@@ -369,7 +572,7 @@ async function doRegister() {
   tip.value = '正在注册设备…'
   tipType.value = 'info'
   try {
-    await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || undefined)
+    await store.registerDevice(username.value.trim(), regDeviceName.value.trim() || '')
     needRegister.value = false
   } catch (e) {
     const msg = String(e.message || e)
@@ -385,6 +588,18 @@ async function doRegister() {
 async function copyPub() {
   try {
     await navigator.clipboard.writeText(generatedPub.value)
+    tip.value = '公钥已复制'
+    tipType.value = 'ok'
+  } catch {
+    tip.value = '复制失败，请手动选择复制'
+    tipType.value = 'err'
+  }
+}
+
+// 复制生成弹窗中的公钥
+async function copyGenPub() {
+  try {
+    await navigator.clipboard.writeText(genResult.value.pub || '')
     tip.value = '公钥已复制'
     tipType.value = 'ok'
   } catch {
@@ -452,7 +667,7 @@ async function doBootstrap() {
     await api.SetRegSecret(adminRegSecret.value.trim())
     password.value = ''
     adminToken.value = ''
-    adminRegSecret.value = ''
+    adminRegSecret.value = '' // 敏感值即用即清，不驻留内存
     await store.enterList()
   } catch (e) {
     tip.value = String(e.message || e)
@@ -465,7 +680,7 @@ async function doBootstrap() {
 // 主按钮统一入口：根据当前模式分发
 function submit() {
   if (mode.value === 'adminDeploy') return doBootstrap()
-  if (mode.value === 'userRegister') return doGenerateKeypair()
+  if (mode.value === 'userRegister') return regPage.value === 'manual' ? doGenerateKeypair() : doRegisterApply()
   return doUnlock()
 }
 </script>
@@ -488,8 +703,20 @@ function submit() {
     <div class="unlock__right">
       <div class="pb-glass pb-glass--strong unlock__card">
         <div class="unlock__card-head">
-          <h2>安全解锁</h2>
-          <span class="pb-badge pb-badge--neutral">端到端加密</span>
+          <h2>{{ cardTitle }}</h2>
+          <span class="pb-badge pb-badge--neutral">{{ cardBadge }}</span>
+        </div>
+
+        <!-- 登录/注册 分段切换（管理员模式与审核等待中不显示） -->
+        <div v-if="!store.adminMode && !needRegister && !regSubmitted" class="unlock__seg">
+          <button :class="{ on: mode === 'userLogin' }" @click="setPage('login')">登录</button>
+          <button :class="{ on: mode === 'userRegister' }" @click="setPage('register')">注册</button>
+        </div>
+
+        <!-- 注册子页签：邀请码注册 / 手动生成密钥（对齐原型 regtabs） -->
+        <div v-if="mode === 'userRegister' && !regSubmitted" class="unlock__regtabs">
+          <button :class="{ on: regPage === 'invite' }" @click="switchRegPage('invite')">🎟 邀请码注册</button>
+          <button :class="{ on: regPage === 'manual' }" @click="switchRegPage('manual')">🔑 手动生成密钥</button>
         </div>
 
         <!-- 服务端地址配置（§9.2） -->
@@ -501,7 +728,7 @@ function submit() {
 
           <div v-if="hasSavedURL" class="unlock__saved-row">
             <span class="pb-mono pb-truncate pb-fill">{{ serverURL }}</span>
-            <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="serverMode = serverMode === 'saved' ? 'new' : 'saved'">
+            <button v-if="mode !== 'userLogin'" class="pb-btn pb-btn--ghost pb-btn--sm" @click="serverMode = serverMode === 'saved' ? 'new' : 'saved'">
               {{ serverMode === 'saved' ? '修改' : '使用已存' }}
             </button>
           </div>
@@ -520,7 +747,7 @@ function submit() {
                 <span v-else>验证</span>
               </button>
             </div>
-            <div class="unlock__input-row">
+            <div v-if="mode !== 'userLogin'" class="unlock__input-row">
               <input
                   v-model="caPath"
                   class="pb-input pb-input--mono"
@@ -529,20 +756,47 @@ function submit() {
               />
               <button class="pb-btn pb-btn--ghost" @click="pickCA">选择…</button>
             </div>
-            <p class="unlock__hint">首次使用必填，验证通过后自动保存，后续启动免配置；自签证书部署需指定 CA 证书</p>
+            <p v-if="mode !== 'userLogin'" class="unlock__hint">首次使用必填，验证通过后自动保存，后续启动免配置；自签证书部署需指定 CA 证书</p>
           </template>
         </div>
 
         <div class="pb-divider"></div>
 
-        <!-- 工号 + 口令 -->
-        <div class="unlock__section">
+        <!-- 工号 + 口令（按模式渲染对应表单；审核等待中整段隐藏，对齐原型 regresult 替换表单） -->
+        <div v-if="!(mode === 'userRegister' && regSubmitted)" class="unlock__section">
           <div class="unlock__section-title">
             <span>{{ modeTitle }}</span>
+            <span v-if="mode === 'userRegister'" class="pb-xs pb-muted">{{ regPage === 'manual' ? '无邀请码' : '管理员发放' }}</span>
           </div>
 
           <!-- 管理员首次部署表单 -->
           <template v-if="mode === 'adminDeploy'">
+            <div class="pb-field">
+              <label class="pb-label">工号</label>
+              <input
+                  v-model="username"
+                  class="pb-input pb-input--lg"
+                  placeholder="管理员工号（唯一、不可改）"
+                  spellcheck="false"
+                  autocomplete="off"
+              />
+            </div>
+            <div class="pb-field">
+              <label class="pb-label">口令（保护本地私钥）</label>
+              <div class="pb-input-group">
+                <input
+                    v-model="password"
+                    :type="showPass ? 'text' : 'password'"
+                    class="pb-input pb-input--lg"
+                    placeholder="设置口令"
+                    autocomplete="off"
+                    @keyup.enter="submit"
+                />
+                <button class="pb-input-group__action" type="button" title="显示/隐藏" @click="showPass = !showPass">
+                  {{ showPass ? '🙈' : '👁' }}
+                </button>
+              </div>
+            </div>
             <div class="pb-field">
               <label class="pb-label">显示名</label>
               <input
@@ -586,63 +840,148 @@ function submit() {
             </div>
           </template>
 
-          <div v-if="mode === 'userRegister'" class="pb-field">
-            <label class="pb-label">注册码（邀请码）</label>
-            <input
-                v-model="inviteCode"
-                class="pb-input pb-input--lg pb-input--mono"
-                placeholder="管理员发放的注册码（绑定你的工号）"
-                spellcheck="false"
-                autocomplete="off"
-            />
-          </div>
-
-          <div class="pb-field">
-            <label class="pb-label">工号</label>
-            <input
-                v-if="mode === 'userLogin' && localUsername"
-                :value="localUsername"
-                class="pb-input pb-input--lg"
-                disabled
-                title="当前登录工号（不可改）"
-            />
-            <input
-                v-else
-                v-model="username"
-                class="pb-input pb-input--lg"
-                placeholder="输入工号（唯一、不可改）"
-                spellcheck="false"
-                autocomplete="off"
-            />
-          </div>
-
-          <div class="pb-field">
-            <label class="pb-label">口令</label>
-            <div class="pb-input-group">
+          <!-- 邀请码注册：工号 → 注册码 → 口令 → 设备名（可选）→ 说明 → 提交 -->
+          <template v-else-if="mode === 'userRegister' && regPage === 'invite'">
+            <div class="pb-field">
+              <label class="pb-label">工号</label>
               <input
-                  v-model="password"
-                  :type="showPass ? 'text' : 'password'"
+                  v-model="username"
                   class="pb-input pb-input--lg"
-                  :placeholder="(mode === 'userRegister' || mode === 'adminDeploy') ? '设置口令（保护本地私钥）' : '输入口令解锁'"
+                  :placeholder="localUsername ? '默认 ' + localUsername + '（可修改）' : '输入工号（唯一、不可改）'"
+                  spellcheck="false"
                   autocomplete="off"
-                  @keyup.enter="submit"
               />
-              <button class="pb-input-group__action" type="button" title="显示/隐藏" @click="showPass = !showPass">
-                {{ showPass ? '🙈' : '👁' }}
-              </button>
             </div>
-          </div>
+            <div class="pb-field">
+              <label class="pb-label">注册码（邀请码）</label>
+              <input
+                  v-model="inviteCode"
+                  class="pb-input pb-input--lg pb-input--mono"
+                  placeholder="管理员发放的注册码（绑定你的工号）"
+                  spellcheck="false"
+                  autocomplete="off"
+              />
+            </div>
+            <div class="pb-field">
+              <label class="pb-label">口令（保护本地私钥）</label>
+              <div class="pb-input-group">
+                <input
+                    v-model="password"
+                    :type="showPass ? 'text' : 'password'"
+                    class="pb-input pb-input--lg"
+                    placeholder="设置口令"
+                    autocomplete="off"
+                    @keyup.enter="submit"
+                />
+                <button class="pb-input-group__action" type="button" title="显示/隐藏" @click="showPass = !showPass">
+                  {{ showPass ? '🙈' : '👁' }}
+                </button>
+              </div>
+            </div>
+            <div class="pb-field">
+              <label class="pb-label">设备名（可选）</label>
+              <input
+                  v-model="regDeviceName"
+                  class="pb-input pb-input--lg pb-input--mono"
+                  placeholder="默认取主机名"
+                  spellcheck="false"
+                  autocomplete="off"
+              />
+            </div>
+            <p class="pb-xs pb-muted">将自动生成 SM2 密钥对并提交注册申请：免审核码直接开户，普通码等待管理员审核。</p>
+            <button class="pb-btn pb-btn--primary pb-btn--lg pb-btn--block" :disabled="busy" @click="submit">
+              <span v-if="busy" class="pb-spinner"></span>
+              <span>{{ busy ? '处理中…' : '注册并等待审核' }}</span>
+            </button>
+          </template>
+
+          <!-- 手动生成密钥对：工号 → 口令 → 备份地址（可选）→ 说明 → 提交 -->
+          <template v-else-if="mode === 'userRegister'">
+            <div class="pb-field">
+              <label class="pb-label">工号</label>
+              <input
+                  v-model="username"
+                  class="pb-input pb-input--lg"
+                  :placeholder="localUsername ? '默认 ' + localUsername + '（可修改）' : '输入工号（唯一、不可改）'"
+                  spellcheck="false"
+                  autocomplete="off"
+              />
+            </div>
+            <div class="pb-field">
+              <label class="pb-label">口令（保护本地私钥）</label>
+              <div class="pb-input-group">
+                <input
+                    v-model="password"
+                    :type="showPass ? 'text' : 'password'"
+                    class="pb-input pb-input--lg"
+                    placeholder="设置口令"
+                    autocomplete="off"
+                    @keyup.enter="submit"
+                />
+                <button class="pb-input-group__action" type="button" title="显示/隐藏" @click="showPass = !showPass">
+                  {{ showPass ? '🙈' : '👁' }}
+                </button>
+              </div>
+            </div>
+            <div class="pb-field">
+              <label class="pb-label">公私钥备份地址（可选）</label>
+              <div class="unlock__input-row">
+                <input
+                    v-model="keyfilePath"
+                    class="pb-input pb-input--mono"
+                    placeholder="私钥备份 .key 完整路径（不填则仅加密入库，解锁后可在设置中导出）"
+                    spellcheck="false"
+                    autocomplete="off"
+                />
+                <button class="pb-btn pb-btn--ghost" @click="pickKeyfilePath">选择…</button>
+              </div>
+            </div>
+            <p class="pb-xs pb-muted">生成后复制「注册信息」发给管理员开户；本地私钥加密入库，可导出备份。</p>
+            <button class="pb-btn pb-btn--primary pb-btn--lg pb-btn--block" :disabled="busy" @click="submit">
+              <span v-if="busy" class="pb-spinner"></span>
+              <span>{{ busy ? '处理中…' : '生成公私钥' }}</span>
+            </button>
+          </template>
+
+          <!-- 登录 / 管理员登录：工号 + 口令 -->
+          <template v-else>
+            <div class="pb-field">
+              <label class="pb-label">工号</label>
+              <input
+                  v-model="username"
+                  class="pb-input pb-input--lg"
+                  :placeholder="localUsername ? '默认 ' + localUsername + '（可修改）' : '输入工号（唯一、不可改）'"
+                  spellcheck="false"
+                  autocomplete="off"
+              />
+            </div>
+            <div class="pb-field">
+              <label class="pb-label">口令</label>
+              <div class="pb-input-group">
+                <input
+                    v-model="password"
+                    :type="showPass ? 'text' : 'password'"
+                    class="pb-input pb-input--lg"
+                    placeholder="输入口令解锁"
+                    autocomplete="off"
+                    @keyup.enter="submit"
+                />
+                <button class="pb-input-group__action" type="button" title="显示/隐藏" @click="showPass = !showPass">
+                  {{ showPass ? '🙈' : '👁' }}
+                </button>
+              </div>
+            </div>
+          </template>
         </div>
 
-        <!-- 注册界面：已有密钥 → 跳过注册去登录 -->
-        <div v-if="mode === 'userRegister'" class="unlock__skip">
-          <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="forceLogin = true">
-            已有密钥？跳过注册去登录
-          </button>
+        <!-- 注册界面：导入私钥 / 去登录（手动注册入口已由上方页签承担） -->
+        <div v-if="mode === 'userRegister' && !regSubmitted" class="unlock__skip">
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="goImport">🔑 有私钥导入</button>
+          <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="setPage('login')">已有密钥？去登录</button>
         </div>
 
         <!-- 登录界面：本地无身份时，可导入私钥备份恢复 -->
-        <div v-if="mode === 'userLogin' && forceLogin && identityRole !== 'member'" class="unlock__import">
+        <div v-if="mode === 'userLogin' && (importOpen || forceLogin) && identityRole !== 'member'" class="unlock__import">
           <div class="unlock__section-title"><span>已有密钥？导入私钥备份恢复登录</span></div>
           <div class="unlock__input-row">
             <input v-model="importKeyfilePath" class="pb-input pb-input--mono" placeholder="私钥备份文件（.key）" spellcheck="false" />
@@ -689,8 +1028,8 @@ function submit() {
               placeholder="设备名（可选，默认取主机名）"
               spellcheck="false"
           />
-          <!-- 首次初始化生成的公钥（交管理员开户用） -->
-          <div v-if="generatedPub" class="unlock__pub">
+          <!-- 首次初始化生成的公钥（交管理员开户用；仅手动流程显示，邀请码流程已自动提交） -->
+          <div v-if="generatedPub && !regSubmitted" class="unlock__pub">
             <span class="pb-label">你的公钥（复制给管理员开户）</span>
             <div class="unlock__pub-row">
               <span class="pb-mono pb-truncate pb-fill">{{ generatedPub }}</span>
@@ -722,14 +1061,15 @@ function submit() {
           <span v-if="busy" class="pb-spinner"></span>
           <span>{{ busy ? '正在注册…' : '注册设备并进入' }}</span>
         </button>
+        <!-- 注册模式的主按钮已移入表单区（对齐原型）；此处仅登录/管理员模式 -->
         <button
-            v-else
+            v-else-if="mode !== 'userRegister'"
             class="pb-btn pb-btn--primary pb-btn--lg pb-btn--block"
             :disabled="busy || autoBusy || !canProceed"
             @click="submit"
         >
           <span v-if="busy" class="pb-spinner"></span>
-          <span>{{ busy ? '处理中…' : (mode === 'adminDeploy' ? '部署并进入' : (mode === 'userRegister' ? '生成公私钥' : '解锁进入')) }}</span>
+          <span>{{ busy ? '处理中…' : (mode === 'adminDeploy' ? '部署并进入' : '解锁进入') }}</span>
         </button>
 
         <p class="unlock__foot">
@@ -739,6 +1079,43 @@ function submit() {
       </div>
     </div>
   </div>
+        <!-- 公私钥生成结果弹窗（无邀请码手动流程） -->
+        <div v-if="genModal" class="unlock__modal-mask" @click.self="genModal = false">
+          <div class="pb-glass pb-glass--strong unlock__modal">
+            <h3 class="unlock__modal-title">公私钥已生成</h3>
+            <div class="pb-field">
+              <label class="pb-label">工号</label>
+              <span class="pb-mono pb-truncate">{{ genResult.username }}</span>
+            </div>
+            <div class="pb-field">
+              <label class="pb-label">公钥（复制给管理员开户）</label>
+              <div class="unlock__input-row">
+                <input :value="genResult.pub" class="pb-input pb-input--mono" readonly spellcheck="false" />
+                <button class="pb-btn pb-btn--ghost" @click="copyGenPub">复制</button>
+              </div>
+            </div>
+            <p v-if="genResult.path" class="pb-xs pb-muted">私钥备份：{{ genResult.path }}</p>
+            <p v-else class="pb-xs pb-muted">未填备份地址——私钥已加密入库，解锁后可在「设置」中导出备份</p>
+            <div class="unlock__modal-actions">
+              <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="doExportKeyfile">💾 保存私钥备份到文件</button>
+              <button class="pb-btn pb-btn--primary pb-btn--sm" @click="genModal = false">完成</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 邀请码注册失败弹窗：是否切换到公私钥手动注册流程 -->
+        <div v-if="regFailModal" class="unlock__modal-mask">
+          <div class="pb-glass pb-glass--strong unlock__modal">
+            <h3 class="unlock__modal-title">邀请码注册失败</h3>
+            <p class="pb-xs pb-muted pb-break-all">{{ regFailMsg }}</p>
+            <p class="pb-xs pb-muted">「切到手动注册」生成公私钥后需复制给管理员开户；「重新填邀请码」可继续用邀请码注册流程（更推荐）。</p>
+            <div class="unlock__modal-actions">
+              <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="confirmGoManual">切到手动注册</button>
+              <button class="pb-btn pb-btn--primary pb-btn--sm" @click="cancelGoManual">重新填写邀请码（推荐）</button>
+            </div>
+          </div>
+        </div>
+
 </template>
 
 <style scoped>
@@ -843,6 +1220,55 @@ function submit() {
 .unlock__card-head h2 {
   font-size: 19px;
   font-weight: 700;
+}
+
+/* 登录/注册 分段切换器（对齐原型 unlock__seg） */
+.unlock__seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  border: 1px solid var(--glass-border);
+}
+.unlock__seg button {
+  height: 34px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  transition: all var(--dur) var(--ease);
+}
+.unlock__seg button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.unlock__seg button:not(.on):hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* 注册子页签：邀请码注册 / 手动生成密钥（对齐原型 unlock__regtabs） */
+.unlock__regtabs {
+  display: flex;
+  gap: 6px;
+  margin-top: -6px;
+}
+.unlock__regtabs button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 99px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  transition: all var(--dur) var(--ease);
+}
+.unlock__regtabs button.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .unlock__section {
@@ -966,4 +1392,22 @@ function submit() {
   .unlock { grid-template-columns: 1fr; }
   .unlock__left { display: none; }
 }
+
+.unlock__modal-mask {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.unlock__modal {
+  width: min(560px, 92vw);
+  max-height: 86vh; overflow-y: auto;
+  padding: 20px;
+  border-radius: 12px;
+}
+.unlock__modal-title { margin: 0 0 14px; font-size: 16px; font-weight: 600; }
+.unlock__modal-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  margin-top: 16px;
+}
+
 </style>
