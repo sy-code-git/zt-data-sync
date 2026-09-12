@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"passbook/internal/buildinfo"
 	"passbook/internal/proto"
 	"passbook/server/authn"
 	"passbook/server/middleware"
@@ -148,11 +149,22 @@ func (s *Server) Router() http.Handler {
 		r.Post("/admin/register-requests/{id}/reject", s.handleAdminRejectRequest)
 	})
 
-	// 健康探针
+	// 健康探针：body 保持 "ok" 不变（部署脚本与客户端探活按此判定），
+	// 版本信息走响应头 —— 一条 `curl -D -` 即可判断线上是否为最新构建
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		bi := buildinfo.Get()
+		w.Header().Set("X-PassBook-Version", bi.Version)
+		w.Header().Set("X-PassBook-Commit", bi.Commit)
+		w.Header().Set("X-PassBook-Build-Time", bi.BuildTime)
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
+	})
+
+	// 版本端点（公开，与 /healthz 同级：不含任何敏感信息，仅构建元数据）
+	r.Get("/version", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(buildinfo.Get())
 	})
 
 	return r

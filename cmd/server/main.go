@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"passbook/internal/buildinfo"
 	"passbook/internal/crypto"
 	"passbook/server"
 	"passbook/server/api"
@@ -29,6 +30,9 @@ func main() {
 }
 
 func run() error {
+	// 首行打印构建信息：与 /healthz 响应头、/version 同源，便于对齐"线上跑的是哪一版"
+	log.Printf("在线密码本 服务端 %s", buildinfo.String())
+
 	cfg, err := server.Load()
 	if err != nil {
 		return err

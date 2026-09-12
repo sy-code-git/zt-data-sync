@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -591,4 +592,55 @@ func genKey(t *testing.T) (*sm2.PrivateKey, error) {
 func pubOf(t *testing.T, priv *sm2.PrivateKey) string {
 	t.Helper()
 	return genPubB64(t, priv)
+}
+
+// TestVersionAndHealthzExposeBuildInfo 回归：判断"线上跑的是哪一版"必须可行。
+//
+// 约束：/healthz 的 body 是既有探活契约（部署脚本 curl|findstr ok、客户端 VerifyServer），
+// **不得改动**；版本信息走响应头。另提供 /version 返回构建元数据。
+func TestVersionAndHealthzExposeBuildInfo(t *testing.T) {
+	f := newFixture(t)
+
+	w := f.do(t, http.MethodGet, "/healthz", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("/healthz code = %d, want 200", w.Code)
+	}
+	if body := w.Body.String(); body != "ok\n" {
+		t.Fatalf("/healthz body = %q，必须保持 \"ok\\n\"（探活契约不可改）", body)
+	}
+	for _, h := range []string{"X-PassBook-Version", "X-PassBook-Commit", "X-PassBook-Build-Time"} {
+		if v := w.Header().Get(h); v == "" {
+			t.Fatalf("/healthz 缺响应头 %s —— 无法判断线上版本", h)
+		}
+	}
+
+	w = f.do(t, http.MethodGet, "/version", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("/version code = %d, want 200", w.Code)
+	}
+	var info struct {
+		Version   string `json:"version"`
+		Commit    string `json:"commit"`
+		BuildTime string `json:"build_time"`
+		GoVersion string `json:"go_version"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &info); err != nil {
+		t.Fatalf("/version 不是合法 JSON: %v（body=%s）", err, w.Body.String())
+	}
+	if info.Version == "" || info.Commit == "" || info.BuildTime == "" || info.GoVersion == "" {
+		t.Fatalf("/version 字段不完整: %+v", info)
+	}
+	if info.GoVersion != runtime.Version() {
+		t.Fatalf("go_version = %q, want %q", info.GoVersion, runtime.Version())
+	}
+	// 与 /healthz 响应头同源（同一份构建信息）
+	if info.Version != w2Header(t, f, "X-PassBook-Version") {
+		t.Fatal("/version 与 /healthz 响应头的版本不一致")
+	}
+}
+
+// w2Header 取 /healthz 的指定响应头（供同上断言复用）。
+func w2Header(t *testing.T, f *fixture, name string) string {
+	t.Helper()
+	return f.do(t, http.MethodGet, "/healthz", "", nil).Header().Get(name)
 }

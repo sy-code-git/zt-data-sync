@@ -8,6 +8,12 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile
+      args:
+        # 构建信息注入：默认 dev/unknown；部署时在 .env 里设 PB_VERSION/PB_COMMIT/PB_BUILD_TIME
+        # （或在命令行 --build-arg 传入），随后 `/version` 与 `/healthz` 响应头即可回答"线上是哪一版"
+        VERSION: ${PB_VERSION:-dev}
+        COMMIT: ${PB_COMMIT:-unknown}
+        BUILD_TIME: ${PB_BUILD_TIME:-unknown}
     container_name: passbook-server
     restart: unless-stopped
     ports:
