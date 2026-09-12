@@ -3,7 +3,8 @@ chcp 65001 >nul
 
 title 在线密码本 - 本地测试一键部署
 
-cd /d "%~dp0\.."
+rem 自定位工作目录：本目录存在 tools\gen-setup.exe 即测试包根；否则视为仓库 脚本\ 子目录，上溯仓库根
+if exist "%~dp0tools\gen-setup.exe" (cd /d "%~dp0") else (cd /d "%~dp0\..")
 
 
 
