@@ -82,7 +82,8 @@ CREATE TABLE audit_log (
                                  -- add_member/remove_member/disable_device/push/delete/rekey/wrap/
                                  -- archive/unarchive
                                  -- 注：pull 不逐次记审计（回退轮询 5s/次会爆量）；
-                                 --   仅异常路径记录（如 40302 越权拉取），action=pull_denied
+                                 --   pull_denied 为预留 action 名，暂未实现（40302 拒绝路径
+                                 --   无数据流出、审计价值低且 pull 高频易灌水，决定不记）
     entry_id    TEXT,            -- 可空，不记任何明文
     ip          TEXT,            -- 事件来源 IP（登录/上线事件记，三期启用）
     device_name TEXT,            -- 设备名快照（设备重命名/删除后仍可溯源）

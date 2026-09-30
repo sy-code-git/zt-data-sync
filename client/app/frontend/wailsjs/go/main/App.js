@@ -26,6 +26,14 @@ export function AdminCreateUser(arg1, arg2, arg3) {
   return window['go']['main']['App']['AdminCreateUser'](arg1, arg2, arg3);
 }
 
+export function AdminKeyfileReset(arg1, arg2, arg3) {
+  return window['go']['main']['App']['AdminKeyfileReset'](arg1, arg2, arg3);
+}
+
+export function AdminListAudit(arg1) {
+  return window['go']['main']['App']['AdminListAudit'](arg1);
+}
+
 export function AdminListDevices() {
   return window['go']['main']['App']['AdminListDevices']();
 }
@@ -52,6 +60,10 @@ export function AdminListUsers() {
 
 export function AdminRejectRegisterRequest(arg1) {
   return window['go']['main']['App']['AdminRejectRegisterRequest'](arg1);
+}
+
+export function AdminRekey(arg1) {
+  return window['go']['main']['App']['AdminRekey'](arg1);
 }
 
 export function AdminRemoveMember(arg1, arg2, arg3) {
@@ -88,6 +100,14 @@ export function DeleteEntry(arg1) {
 
 export function DisableAutoUnlock() {
   return window['go']['main']['App']['DisableAutoUnlock']();
+}
+
+export function ListRecycle() {
+  return window['go']['main']['App']['ListRecycle']();
+}
+
+export function RestoreEntry(arg1) {
+  return window['go']['main']['App']['RestoreEntry'](arg1);
 }
 
 export function EnableAutoUnlock() {
@@ -180,6 +200,14 @@ export function Role() {
 
 export function SaveFileDialog(arg1) {
   return window['go']['main']['App']['SaveFileDialog'](arg1);
+}
+
+export function SaveFileDialogAs(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveFileDialogAs'](arg1, arg2, arg3);
+}
+
+export function WriteTextFile(arg1, arg2) {
+  return window['go']['main']['App']['WriteTextFile'](arg1, arg2);
 }
 
 export function SetCA(arg1) {

@@ -1,5 +1,5 @@
 <script setup>
-import {ref, reactive, computed, onMounted} from 'vue'
+import {ref, reactive, computed, onMounted, onUnmounted} from 'vue'
 import {useAppStore} from '../store'
 import {api} from '../api'
 
@@ -49,6 +49,12 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+// 离开冲突页即复位明文显示并清定时器（避免定时器残留与明文状态跨视图带出）
+onUnmounted(() => {
+  clearTimeout(revealTimer)
+  revealAll.value = false
 })
 
 const isCustom = computed(() => (conflict.value?.ours?.type || conflict.value?.base?.type || '') === 'custom')
@@ -101,8 +107,20 @@ function isDiff(key) {
 }
 
 // 密码类字段掩码显示。三路比对必须能看清实际取值，否则无法判断保留哪一份，
-// 故提供「显示明文」切换（与账号详情页的 👁 用法一致，仅在已解锁的界面上生效）
+// 故提供「显示明文」切换（与账号详情页的 👁 用法一致，仅在已解锁的界面上生效）。
+// 与账号弹窗同纪律：显示 20 秒后自动恢复掩码，避免明文长期驻留屏幕。
 const revealAll = ref(false)
+const REVEAL_MS = 20000
+let revealTimer = null
+function toggleRevealAll() {
+  revealAll.value = !revealAll.value
+  clearTimeout(revealTimer)
+  revealTimer = revealAll.value ? setTimeout(() => { revealAll.value = false }, REVEAL_MS) : null
+}
+function resetReveal() {
+  clearTimeout(revealTimer)
+  revealAll.value = false
+}
 function masked(key, val) {
   if (!val) return val
   if (revealAll.value) return val
@@ -214,9 +232,11 @@ function back() {
       </div>
       <button
           class="pb-btn pb-btn--ghost pb-btn--sm"
-          :title="revealAll ? '恢复掩码显示' : '显示密码字段明文，便于逐字段比对'"
-          @click="revealAll = !revealAll"
+          :title="revealAll ? '立即恢复掩码显示' : `显示密码字段明文（${REVEAL_MS / 1000} 秒后自动恢复掩码）`"
+          :aria-pressed="revealAll"
+          @click="toggleRevealAll"
       >{{ revealAll ? '🙈 隐藏明文' : '👁 显示明文' }}</button>
+      <span v-if="revealAll" class="pb-xs pb-muted">{{ REVEAL_MS / 1000 }} 秒后自动恢复掩码</span>
       <span class="pb-badge pb-badge--danger">
         <span class="pb-dot pb-dot--err"></span>{{ conflictKeys.length }} 处冲突
       </span>

@@ -88,6 +88,20 @@ async function call(fn, ...args) {
       return null
     case 'AdminListDevices':
       return mock.get('devices') || []
+    case 'AdminKeyfileReset':
+      return null
+    case 'AdminRekey':
+      return null
+    case 'AdminListAudit':
+      return mock.get('audit') || []
+    case 'ListRecycle':
+      return mock.get('recycle') || []
+    case 'RestoreEntry':
+      return null
+    case 'SaveFileDialogAs':
+      return 'D:\\preview\\audit-export.csv'
+    case 'WriteTextFile':
+      return null
     case 'TryAutoUnlock':
       throw new Error('预览环境不支持自动解锁（Windows DPAPI）')
     case 'EnableAutoUnlock':
@@ -229,7 +243,8 @@ function decodeFields(obj) {
 // ---- 明文（plaintext）与业务字段的转换（core 纯管道：明文是 opaque bytes，UI 自行序列化/解析） ----
 
 // 明文字节 → UTF-8 字符串（兼容 base64 字符串 / number[] 字节数组 / 已是字符串）
-function plainToUtf8(p) {
+// 供视图层解 RecycleEntryView.plaintext 等透传明文时复用（跨端 wire 格式唯一解码口）。
+export function plainToUtf8(p) {
   if (p == null || p === '') return ''
   if (typeof p === 'string') {
     try {
@@ -328,6 +343,8 @@ export const api = {
     return call(WailsApp.PutEntry, req) // mock 透传明文对象
   },
   DeleteEntry: (id) => call(WailsApp.DeleteEntry, id),
+  ListRecycle: () => call(WailsApp.ListRecycle),
+  RestoreEntry: (id) => call(WailsApp.RestoreEntry, id),
   ResolveConflict: (id, useLocal, manual) => {
     if (inWails) {
       return call(WailsApp.ResolveConflict, id, useLocal, manual ? encodePlaintext(manual) : null)
@@ -354,6 +371,8 @@ export const api = {
   IsReinit: () => call(WailsApp.IsReinit),
   IsAdminMode: () => call(WailsApp.IsAdminMode),
   SaveFileDialog: (title) => call(WailsApp.SaveFileDialog, title),
+  SaveFileDialogAs: (title, defaultName, defaultExt) => call(WailsApp.SaveFileDialogAs, title, defaultName, defaultExt),
+  WriteTextFile: (path, content) => call(WailsApp.WriteTextFile, path, content),
   GetCA: () => call(WailsApp.GetCA),
   SetCA: (caPath) => call(WailsApp.SetCA, caPath),
   RegisterDevice: (username, deviceName) => call(WailsApp.RegisterDevice, username, deviceName),
@@ -371,6 +390,9 @@ export const api = {
   AdminListMembers: (groupID) => call(WailsApp.AdminListMembers, groupID),
   AdminRemoveMember: (groupID, userID, confirmName) => call(WailsApp.AdminRemoveMember, groupID, userID, confirmName),
   AdminRevoke: (userID, confirmName) => call(WailsApp.AdminRevoke, userID, confirmName),
+  AdminKeyfileReset: (userID, name, publicKey) => call(WailsApp.AdminKeyfileReset, userID, name, publicKey),
+  AdminRekey: (groupID) => call(WailsApp.AdminRekey, groupID),
+  AdminListAudit: (query) => call(WailsApp.AdminListAudit, query || ''),
   AdminListDevices: () => call(WailsApp.AdminListDevices),
   // 方案 C：邀请码 + 审核制（§6.3）
   RegisterRequest: (inviteCode, username, publicKey, deviceName) => call(WailsApp.RegisterRequest, inviteCode, username, publicKey, deviceName),

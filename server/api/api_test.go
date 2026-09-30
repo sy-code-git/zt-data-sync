@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tjfoc/gmsm/sm2"
 
@@ -33,6 +34,8 @@ type fixture struct {
 	adminUser  string
 	// 密钥
 	adminPriv *sm2.PrivateKey
+	// 可注入时间源（保留期清理等时间相关测试用；默认真实时间）
+	now func() time.Time
 }
 
 func newFixture(t *testing.T) *fixture {

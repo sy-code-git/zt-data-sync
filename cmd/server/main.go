@@ -88,6 +88,18 @@ func run() error {
 	cleaner := sync.NewTombstoneCleaner(st, cfg.TombstoneDays)
 	go cleaner.Run(ctx, cfg.TombstoneHour)
 
+	// 设备离线监视器（§3.6/§5.2 device_offline：60s 一趟，在线→离线跃迁记审计）
+	offlineMon := sync.NewDeviceOfflineMonitor(st, audit, nil)
+	go offlineMon.Run(ctx)
+
+	// 审计日志保留期清理（§12.2 PB_AUDIT_RETENTION，默认 180 天；0 = 永久不清理）
+	if cfg.AuditRetentionDays > 0 {
+		auditCleaner := sync.NewAuditCleaner(st, cfg.AuditRetentionDays)
+		go auditCleaner.Run(ctx, cfg.TombstoneHour)
+	} else {
+		log.Printf("PB_AUDIT_RETENTION=0：审计日志永久保留")
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           apiSrv.Router(),

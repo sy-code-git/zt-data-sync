@@ -1,11 +1,13 @@
 <script setup>
 // 管理面板（tab 导航式，按管理端原型）：
-// 概览 / 组管理 / 成员 / 注册审核 / 邀请码 / 设备 六个 tab；
+// 概览 / 组管理 / 成员 / 注册审核 / 邀请码 / 设备 / 审计 七个 tab；
 // 保留既有全部 API 功能（两步确认、5 秒轮询、注册信息导入、公钥指纹、通用确认/输入弹窗）。
+// 换钥（§4.4）与触发重加密（§6.3）为成员/组行内操作；审计支持按用户/动作过滤。
 import {ref, reactive, computed, onMounted, onBeforeUnmount} from 'vue'
 import {api} from '../api'
 import {useAppStore} from '../store'
 import PbSelect from '../components/PbSelect.vue'
+import {useModalFocus} from '../composables/useModalFocus'
 
 const store = useAppStore()
 
@@ -15,6 +17,9 @@ const currentTab = ref('overview')
 // ---- 状态 ----
 const groups = ref([])
 const users = ref([])
+// 成员列表是否已成功加载（守卫用）：审计页「按用户过滤」下拉取自成员列表，
+// 与设备页 devicesLoaded 同构——失败时保持 false，下次进 tab 补一次，避免下拉只剩「全部用户」
+const usersLoaded = ref(false)
 const busy = ref(false)
 const tip = ref('')
 const tipType = ref('info')
@@ -38,6 +43,32 @@ const invites = ref([])
 const regRequests = ref([])
 // 审核显示名：按申请 id 独立保存（共享单个 ref 会在多条申请同屏时互相串值）
 const regReviewNames = reactive({})
+// 审计：列表 + 过滤（用户/动作），倒序上限 500（服务端 §6.3）
+const auditEvents = ref([])
+const auditUserFilter = ref('') // user_id（下拉取自成员列表）
+const auditActionFilter = ref('')
+const AUDIT_ACTIONS = [
+  {value: '', label: '全部动作'},
+  {value: 'device_register', label: '设备注册（历史登录）'},
+  {value: 'device_online', label: '设备上线'},
+  {value: 'device_offline', label: '设备离线'},
+  {value: 'device_refresh', label: 'token 刷新（历史登录）'},
+  {value: 'bootstrap', label: '首启引导'},
+  {value: 'create_user', label: '开户'},
+  {value: 'revoke', label: '吊销'},
+  {value: 'keyfile_reset', label: '换钥'},
+  {value: 'create_group', label: '建组'},
+  {value: 'add_member', label: '加成员'},
+  {value: 'remove_member', label: '移出成员'},
+  {value: 'rekey', label: '触发重加密'},
+  {value: 'archive', label: '归档'},
+  {value: 'unarchive', label: '重启'},
+  {value: 'create_invite', label: '生成邀请码'},
+  {value: 'register_request', label: '注册申请'},
+  {value: 'reject_register', label: '拒绝申请'},
+  {value: 'disable_device', label: '禁用设备'},
+  {value: 'push', label: '推送变更'},
+]
 
 // 过滤后的成员列表（默认隐藏管理员）
 const visibleUsers = computed(() => {
@@ -54,6 +85,7 @@ async function refresh(silent = false) {
     const [g, u] = await Promise.all([api.AdminListGroups(), api.AdminListUsers()])
     groups.value = g || []
     users.value = u || []
+    usersLoaded.value = true
   } catch (e) {
     // 轮询触发的失败静默（服务端短暂断开时避免每 5 秒刷一次错误提示）；手动刷新才提示
     if (!silent) {
@@ -88,6 +120,7 @@ const POLL_INTERVAL = {
   open: 15000, // 开户页候选成员 4 次/分
   overview: 20000, // 统计卡（全量 4 请求）12 次/分
   devices: 30000, // 设备在线状态 2 次/分
+  audit: 30000, // 审计最近事件 2 次/分（写操作后手动刷新兜底）
 }
 const POLL_COST = {overview: 4} // 概览走全量刷新，按 4 次计
 const POLL_BUDGET_PER_MIN = 18
@@ -127,6 +160,9 @@ async function pollTab(force = false) {
     case 'devices':
       await loadDevices().catch(() => {})
       break
+    case 'audit':
+      await loadAudit().catch(() => {})
+      break
   }
 }
 
@@ -142,9 +178,15 @@ async function loadGroups() {
 async function loadUsers() {
   try {
     users.value = (await api.AdminListUsers()) || []
+    usersLoaded.value = true
   } catch (e) {
     // 轮询静默，下轮重试
   }
+}
+
+// 成员列表依赖守卫（见 gotoTab 调用处）：仅在从未成功加载时补一次，成功即置位，不重复请求
+function ensureUsers() {
+  if (!usersLoaded.value) loadUsers()
 }
 
 // 邀请码：生成 / 列表
@@ -291,6 +333,11 @@ function closeConfirm(ok) {
 
 // 通用输入弹窗（替换浏览器原生 prompt：WebView2 下原生 prompt 可能被禁用返回 null，功能静默失效）
 const promptModal = ref({show: false, title: '', message: '', placeholder: '', value: '', resolve: null})
+// 两个通用弹窗都挂焦点陷阱（无障碍）：与其它视图的弹窗保持一致
+const confirmModalRef = ref(null)
+const promptModalRef = ref(null)
+useModalFocus(confirmModalRef, computed(() => !!confirmModal.value.show))
+useModalFocus(promptModalRef, computed(() => !!promptModal.value.show))
 function showPrompt({title, message, placeholder = ''}) {
   return new Promise((resolve) => {
     promptModal.value = {show: true, title, message, placeholder, value: '', resolve}
@@ -492,6 +539,102 @@ async function doRevokeMember(m) {
   }
 }
 
+// 换钥（keyfile 找回/换绑公钥，§4.4）：粘贴成员新设备「注册信息」解析公钥 → 危险色确认。
+// 成员自助路径：私钥由成员本机生成，管理员全程只接触公钥。
+async function doKeyfileReset(u) {
+  const raw = await showPrompt({
+    title: '换绑公钥',
+    message: `粘贴成员「${u.name}」新设备的「注册信息」（成员端解锁页「复制注册信息」的内容）：`,
+    placeholder: '工号：zhangsan\n公钥：MFkwEwYHKoZIzj0CAQYI…',
+  })
+  if (!raw) return
+  const uname = raw.match(/工号[:：]\s*(\S+)/)
+  const pub = raw.match(/公钥[:：]\s*(\S+)/)
+  if (!pub) {
+    flash('解析失败：未找到「公钥」（请复制成员端「复制注册信息」的内容）', 'err')
+    return
+  }
+  if (uname && uname[1] !== u.username) {
+    flash(`工号不匹配：注册信息为「${uname[1]}」，所选成员为「${u.username}」，请核对`, 'err')
+    return
+  }
+  const publicKey = pub[1].trim()
+  if (!await showConfirm({
+    title: '换绑公钥',
+    message: `确定为成员「${u.name}」换绑公钥吗？换绑后其全部设备立即作废（需重新导入 keyfile 注册设备），所在组将触发重加密。请将新 keyfile 交予本人。`,
+    okText: '确认换绑',
+    danger: true,
+  })) return
+  busy.value = true
+  try {
+    await api.AdminKeyfileReset(u.user_id, u.name, publicKey)
+    flash(`成员「${u.name}」已换绑公钥，其设备已全部作废；新信封将由在线成员自动补齐`)
+    users.value = await api.AdminListUsers()
+  } catch (e) {
+    flash(String(e.message || e), 'err')
+  } finally {
+    busy.value = false
+  }
+}
+
+// 触发组重加密（§6.3：仅置位 pending_rekey，执行由在线成员完成）
+async function doRekeyGroup(g) {
+  const msg = g.archived
+      ? `该组已归档：仅置位重加密标记，不执行；将在组重启后由在线成员自动收敛。确定为组「${g.name}」置位吗？`
+      : `确定为组「${g.name}」触发重加密吗？组密钥升级由在线成员后台完成，进度可在组列表查看。`
+  if (!await showConfirm({
+    title: '触发重加密',
+    message: msg,
+    okText: '确认触发',
+    danger: true,
+  })) return
+  busy.value = true
+  try {
+    await api.AdminRekey(g.id)
+    flash(`已发起：组「${g.name}」密钥升级将由在线成员后台完成`)
+    await loadGroups()
+  } catch (e) {
+    flash(String(e.message || e), 'err')
+  } finally {
+    busy.value = false
+  }
+}
+
+// 审计查询（§6.3：倒序上限 500；按用户/动作过滤）
+async function loadAudit() {
+  const params = []
+  if (auditUserFilter.value) params.push('user_id=' + encodeURIComponent(auditUserFilter.value))
+  if (auditActionFilter.value) params.push('action=' + encodeURIComponent(auditActionFilter.value))
+  auditEvents.value = (await api.AdminListAudit(params.join('&'))) || []
+}
+
+// 审计 CSV 导出（§3.6：前端本地生成，仅导出当前已拉取的 ≤500 条；零服务端改动）
+async function exportAuditCsv() {
+  if (!auditEvents.value.length) {
+    flash('当前无审计记录可导出', 'err')
+    return
+  }
+  busy.value = true
+  try {
+    const path = await api.SaveFileDialogAs('导出审计日志 CSV', `audit-${Date.now()}.csv`, 'csv')
+    if (!path) return // 用户取消
+    const esc = (v) => {
+      const s = String(v ?? '')
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+    }
+    const lines = ['id,时间,动作,用户,设备,主机名,IP,详情']
+    for (const e of auditEvents.value) {
+      lines.push([e.id, fmtTime(e.ts), e.action, e.user_name || e.user_id || '', e.device_name || '', e.hostname || '', e.ip || '', e.detail || ''].map(esc).join(','))
+    }
+    await api.WriteTextFile(path, lines.join('\r\n'))
+    flash(`已导出 ${auditEvents.value.length} 条审计记录`)
+  } catch (e) {
+    flash(String(e.message || e), 'err')
+  } finally {
+    busy.value = false
+  }
+}
+
 // 设备：进入设备 tab 时加载
 const devices = ref([])
 const devicesLoaded = ref(false)
@@ -512,6 +655,9 @@ async function loadDevices() {
 function gotoTab(t) {
   currentTab.value = t
   if (t === 'devices' && !devicesLoaded.value) loadDevices()
+  // 成员列表依赖守卫：组管理「加成员」下拉与审计「按用户过滤」下拉都取自成员列表，
+  // 但这两个 tab 的轮询只拉本 tab 数据（groups / audit）→ 进面板的全量刷新若失败，此处各补一次
+  if (t === 'groups' || t === 'audit') ensureUsers()
   // 切 tab 立即拉该 tab 数据（force 仅跳过刷新间隔，仍受轮询预算约束，见 pollTab）
   pollTab(true)
 }
@@ -572,6 +718,7 @@ const subTitle = computed(() => {
         <span class="pb-badge pb-badge--neutral">{{ invites.filter(inviteActive).length }}</span>
       </button>
       <button class="admin-nav__item" :class="{'admin-nav__item--on': currentTab === 'devices'}" @click="gotoTab('devices')">🖥 设备</button>
+      <button class="admin-nav__item" :class="{'admin-nav__item--on': currentTab === 'audit'}" @click="gotoTab('audit')">📜 审计</button>
     </nav>
 
     <div class="admin">
@@ -600,6 +747,7 @@ const subTitle = computed(() => {
               <button class="pb-btn pb-btn--ghost" @click="gotoTab('invite')">🎟 生成邀请码</button>
               <button class="pb-btn pb-btn--ghost" @click="gotoTab('groups')">👥 组管理</button>
               <button class="pb-btn pb-btn--ghost" @click="gotoTab('open')">🧑‍💼 成员开户</button>
+              <button class="pb-btn pb-btn--ghost" @click="gotoTab('audit')">📜 审计日志</button>
             </div>
           </div>
           <div class="pb-glass admin__panel">
@@ -651,6 +799,9 @@ const subTitle = computed(() => {
                   <button v-if="!g.archived" class="pb-btn pb-btn--ghost pb-btn--sm" @click="doSelectGroup(g)">
                     {{ selectedGroup && selectedGroup.id === g.id ? '收起成员' : '成员' }}
                   </button>
+                  <button v-if="!g.archived" class="pb-btn pb-btn--ghost pb-btn--sm" :disabled="busy" @click="doRekeyGroup(g)">
+                    🛡 重加密
+                  </button>
                   <button v-if="!g.archived" class="pb-btn pb-btn--ghost pb-btn--sm pb-btn--danger" @click="doArchiveGroup(g)">
                     删除
                   </button>
@@ -678,6 +829,14 @@ const subTitle = computed(() => {
                     <span class="pb-badge" :class="m.online ? 'pb-badge--success' : 'pb-badge--neutral'">
                       {{ m.online ? '在线' : '离线' }}
                     </span>
+                    <button
+                        v-if="m.role !== 'admin'"
+                        class="pb-btn pb-btn--ghost pb-btn--sm"
+                        :disabled="busy"
+                        @click="doKeyfileReset(m)"
+                    >
+                      🔑 换钥
+                    </button>
                     <button
                         v-if="m.role !== 'admin'"
                         class="pb-btn pb-btn--ghost pb-btn--sm pb-btn--danger"
@@ -755,6 +914,13 @@ const subTitle = computed(() => {
               </span>
                 <span class="pb-xs pb-muted">工号 {{ u.username || '（未设）' }}</span>
               </div>
+              <button
+                  v-if="u.role !== 'admin'"
+                  class="pb-btn pb-btn--ghost pb-btn--sm"
+                  @click="doKeyfileReset(u)"
+              >
+                🔑 换钥
+              </button>
               <button
                   v-if="u.role !== 'admin'"
                   class="pb-btn pb-btn--ghost pb-btn--sm pb-btn--danger"
@@ -875,11 +1041,54 @@ const subTitle = computed(() => {
           </div>
         </div>
       </template>
+
+      <!-- ====== 审计 ====== -->
+      <template v-else-if="currentTab === 'audit'">
+        <div class="pb-glass admin__panel">
+          <div class="admin__panel-title">
+            审计日志（{{ auditEvents.length }} 条，倒序上限 500）
+            <span class="pb-fill"></span>
+            <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="exportAuditCsv" :disabled="busy">⬇ 导出 CSV</button>
+            <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="loadAudit">⟳ 刷新</button>
+          </div>
+          <div class="admin__input-row">
+            <div style="flex: 1; min-width: 0">
+              <PbSelect
+                  :model-value="auditUserFilter"
+                  :options="[{value: '', label: '全部用户'}].concat(
+                    users.map((u) => ({value: u.user_id, label: `${u.name}（${u.username || u.user_id}）`}))
+                  )"
+                  placeholder="按用户过滤（含历史登录 IP/设备）"
+                  @update:model-value="auditUserFilter = $event; loadAudit()"
+              />
+            </div>
+            <div style="flex: 1; min-width: 0">
+              <PbSelect
+                  :model-value="auditActionFilter"
+                  :options="AUDIT_ACTIONS"
+                  placeholder="按动作过滤"
+                  @update:model-value="auditActionFilter = $event; loadAudit()"
+              />
+            </div>
+          </div>
+          <div class="admin__audit-list">
+            <div v-for="e in auditEvents" :key="e.id" class="admin__audit-row">
+              <span class="pb-xs pb-muted admin__audit-ts">{{ fmtTime(e.ts) }}</span>
+              <span class="pb-badge pb-badge--neutral admin__audit-action">{{ e.action }}</span>
+              <span class="pb-xs admin__audit-user">{{ e.user_name || e.user_id || '—' }}</span>
+              <span class="pb-xs pb-muted admin__audit-meta">
+                {{ e.device_name || e.hostname || '—' }} · {{ e.ip || '无 IP' }}<template v-if="e.detail"> · {{ e.detail }}</template>
+              </span>
+            </div>
+            <p v-if="!auditEvents.length" class="pb-xs pb-muted">暂无审计记录（或该过滤条件下无结果）</p>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- 通用确认弹窗（替换浏览器原生 confirm：避免原生弹窗位置/风格不一致） -->
     <div v-if="confirmModal.show" class="admin__confirm-mask" @click.self="closeConfirm(false)">
-      <div class="pb-glass pb-glass--strong admin__confirm-modal">
+      <div ref="confirmModalRef" class="pb-glass pb-glass--strong admin__confirm-modal" role="dialog" aria-modal="true">
         <h3 class="admin__confirm-title">{{ confirmModal.title }}</h3>
         <p class="admin__confirm-msg">{{ confirmModal.message }}</p>
         <div class="admin__confirm-actions">
@@ -895,7 +1104,7 @@ const subTitle = computed(() => {
 
     <!-- 通用输入弹窗（替换浏览器原生 prompt：WebView2 下可能被禁用） -->
     <div v-if="promptModal.show" class="admin__confirm-mask" @click.self="closePrompt(false)">
-      <div class="pb-glass pb-glass--strong admin__confirm-modal">
+      <div ref="promptModalRef" class="pb-glass pb-glass--strong admin__confirm-modal" role="dialog" aria-modal="true">
         <h3 class="admin__confirm-title">{{ promptModal.title }}</h3>
         <p class="admin__confirm-msg">{{ promptModal.message }}</p>
         <textarea
@@ -1047,6 +1256,23 @@ const subTitle = computed(() => {
   border: 1px solid var(--glass-border);
 }
 .admin__pubrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+
+/* 审计列表 */
+.admin__audit-list { display: flex; flex-direction: column; gap: 6px; }
+.admin__audit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  min-width: 0;
+}
+.admin__audit-ts { flex-shrink: 0; font-family: var(--mono-font, monospace); }
+.admin__audit-action { flex-shrink: 0; }
+.admin__audit-user { flex-shrink: 0; font-weight: 600; }
+.admin__audit-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 通用确认弹窗 */
 .admin__confirm-mask {

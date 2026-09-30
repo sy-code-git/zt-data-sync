@@ -58,13 +58,13 @@ export function useModalFocus(containerRef, activeRef) {
   }
 
   function activate() {
-    handle.el = containerRef.value
-    handle.bound = false
-    if (!handle.el) return
-    // 栈内去重（同一实例重复激活时不重复入栈）
+    // 关键：本函数由 watch 回调触发（DOM 更新之前），此刻 containerRef 仍为 null。
+    // 若在此处直接 return，首次打开弹窗的陷阱会静默失效（历史缺陷：所有调用点都没真正锁住焦点）。
+    // 故先入栈，再在 nextTick 后重新取 ref 并绑定。
     if (!activeStack.includes(handle)) activeStack.push(handle)
     nextTick(() => {
       handle.el = containerRef.value
+      if (!handle.el) return
       bindTop(handle)
     })
   }

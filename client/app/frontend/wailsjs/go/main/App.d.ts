@@ -15,6 +15,10 @@ export function AdminCreateInvite(arg1:string,arg2:boolean,arg3:number):Promise<
 
 export function AdminCreateUser(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function AdminKeyfileReset(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function AdminListAudit(arg1:string):Promise<Array<proto.AuditEventOut>>;
+
 export function AdminListDevices():Promise<Array<proto.AdminDevice>>;
 
 export function AdminListGroups():Promise<Array<proto.GroupInfo>>;
@@ -28,6 +32,8 @@ export function AdminListRegisterRequests(arg1:string):Promise<Array<proto.Regis
 export function AdminListUsers():Promise<Array<proto.UserInfo>>;
 
 export function AdminRejectRegisterRequest(arg1:string):Promise<void>;
+
+export function AdminRekey(arg1:string):Promise<void>;
 
 export function AdminRemoveMember(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -63,6 +69,10 @@ export function GetEntry(arg1:string):Promise<api.EntryView>;
 
 export function GetServerURL():Promise<string>;
 
+export function ListRecycle():Promise<Array<api.RecycleEntryView>>;
+
+export function RestoreEntry(arg1:string):Promise<void>;
+
 export function HasRegSecret():Promise<boolean>;
 
 export function ImportKeyfile(arg1:string,arg2:string,arg3:string,arg4:string):Promise<api.UnlockResult>;
@@ -92,6 +102,10 @@ export function ResolveConflict(arg1:string,arg2:boolean,arg3:Array<number>):Pro
 export function Role():Promise<string>;
 
 export function SaveFileDialog(arg1:string):Promise<string>;
+
+export function SaveFileDialogAs(arg1:string,arg2:string,arg3:string):Promise<string>;
+
+export function WriteTextFile(arg1:string,arg2:string):Promise<void>;
 
 export function SetCA(arg1:string):Promise<void>;
 

@@ -81,18 +81,26 @@ func (s *Server) handleRegisterRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 无认证分组：显式 actor 记审计（申请记录已含 IP/设备名快照，审计补元数据）。
+	// 记在免审核分支之前：无论走 pending 还是自动开户，"有人提交了注册申请"都要留痕。
+	s.audit.RecordActor(r.Context(), "", "", "register_request", "", ip, req.DeviceName, "", "request_id="+rid)
+
 	// 免审核码 → 服务端直接开户（attestation 由服务端按 PB_REG_SECRET 计算）
 	if inv.AutoApprove == 1 {
 		if err := s.approveAndCreateUser(req.InviteCode, rid, req.Username, req.SM2PublicKey, req.Username); err != nil {
 			handleErr(w, err)
 			return
 		}
-		s.audit.Record(r, "create_user", "", "")
+		// 无认证分组：显式 actor 记审计（免审核自动开户，§5.2 create_user）
+		newUID := ""
+		if u, err := s.store.GetUserByUsername(req.Username); err == nil {
+			newUID = u.ID
+		}
+		s.audit.RecordActor(r.Context(), "", newUID, "create_user", "", ip, req.DeviceName, "", "auto_approve")
 		writeOK(w, proto.RegisterRequestResponse{ID: rid, Status: store.RegApproved})
 		return
 	}
 
-	s.audit.Record(r, "register_request", "", "")
 	writeOK(w, proto.RegisterRequestResponse{ID: rid, Status: store.RegPending})
 }
 

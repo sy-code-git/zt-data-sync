@@ -94,6 +94,9 @@ type LocalStore interface {
 
 	// ---- 回收站（recycle_bin，§7.4 本地 30 天） ----
 	PutRecycleBin(id string, ciphertext string, deletedAt int64) error
+	ListRecycleBin() ([]RecycleItem, error)
+	DeleteRecycleBin(id string) error
+	PurgeRecycleBin(olderThanUnix int64) (int64, error)
 }
 
 // AutoUnlockConfig 自动解锁配置（§9.1，app_config 单行扩展）。
@@ -150,6 +153,13 @@ type PendingEntry struct {
 	KeyVersion int
 	Ciphertext string
 	UpdatedAt  int64
+}
+
+// RecycleItem 回收站条目（§7.4：本地保留 30 天，密文与删除时间）。
+type RecycleItem struct {
+	ID         string
+	Ciphertext string
+	DeletedAt  int64
 }
 
 // sqliteLocal LocalStore 的 SQLite 实现。

@@ -26,6 +26,16 @@ type EntryView struct {
 	Archived   bool   `json:"archived,omitempty"`    // 组已归档（只读）
 }
 
+// RecycleEntryView 回收站条目视图（§7.4：标题从回收密文解出后透传 UI，core 不解析）。
+type RecycleEntryView struct {
+	ID          string `json:"id"`
+	GroupID     string `json:"group_id"`
+	Plaintext   []byte `json:"plaintext"`
+	Seq         int64  `json:"seq"`
+	KeyVersion  int    `json:"key_version"`
+	DeletedAt   int64  `json:"deleted_at"`
+}
+
 // UnlockResult 解锁结果（UI 展示用）。
 type UnlockResult struct {
 	UserID       string `json:"user_id"`
@@ -133,6 +143,12 @@ type Core interface {
 	AdminListMembers(groupID string) ([]proto.GroupMemberInfo, error)
 	// AdminRemoveMember 移出组成员（成员名二次确认）。
 	AdminRemoveMember(groupID, userID, confirmName string) error
+	// AdminKeyfileReset keyfile 找回/换绑公钥（name 为服务端库中显示名，§4.4）。
+	AdminKeyfileReset(userID, name, publicKey string) error
+	// AdminRekey 触发组重加密（置位 pending_rekey，执行由在线成员完成）。
+	AdminRekey(groupID string) error
+	// AdminListAudit 审计日志查询（倒序上限 500；query 为原始查询串，空=不过滤）。
+	AdminListAudit(query string) ([]proto.AuditEventOut, error)
 	// AdminListDevices 设备/主机列表（含在线状态/主机名/IP）。
 	AdminListDevices() ([]proto.AdminDevice, error)
 	// 自动解锁（§9.1，Windows DPAPI）
@@ -150,6 +166,9 @@ type Core interface {
 	ResolveConflict(id string, useLocal bool, manual []byte) error
 	// 冲突详情：三栏 diff 数据（base/ours/theirs，§7.3）
 	GetConflict(id string) (*ConflictDetail, error)
+	// 回收站（§7.4 本地 30 天）：列表 + 恢复（恢复即追加新 mutation 覆盖墓碑）
+	ListRecycle() ([]RecycleEntryView, error)
+	RestoreEntry(id string) error
 
 	// 同步控制
 	StartSync()

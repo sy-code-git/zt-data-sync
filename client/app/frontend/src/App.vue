@@ -59,16 +59,12 @@ function onWinEvent(ev) {
   if (ev.type === 'sync_status' || ev.type === 'rekey_started' || ev.type === 'rekey_done') {
     store.refreshStatus()
   }
+  // 后端强制锁定 / token 失效：必须与主动锁定走同一条本地清理（含 editing/deleteConfirm 等明文副本）
   if (ev.type === 'locked') {
-    store.unlocked = false
-    store.entries = []
-    store.view = 'unlock'
+    store.clearLocalSession()
   }
-  // token 彻底失效（被吊销/作废）→ 回解锁页并提示重新解锁
   if (ev.type === 'auth_expired') {
-    store.unlocked = false
-    store.entries = []
-    store.view = 'unlock'
+    store.clearLocalSession()
     store.toast(String(ev.data || '登录已失效，请重新解锁'), 'error')
   }
   if (ev.type === 'error') {
@@ -76,10 +72,18 @@ function onWinEvent(ev) {
   }
 }
 
-// Esc 关闭删除确认弹窗（无障碍）
+// 全局快捷键：Esc 关删除确认；(Ctrl|⌘)+K 打开搜索并聚焦搜索框
 const onKeydown = (e) => {
   if (e.key === 'Escape' && store.deleteConfirm) {
     store.deleteConfirm = null
+    return
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    if (!store.unlocked) return
+    // 编辑页有未保存表单：不跳转，避免静默丢弃用户输入
+    if (store.view === 'edit') return
+    e.preventDefault()
+    store.openSearch()
   }
 }
 
@@ -165,8 +169,8 @@ const currentView = computed(() => {
       </transition>
     </main>
 
-    <!-- Toast 容器 -->
-    <div class="pb-toast-wrap">
+    <!-- Toast 容器（aria-live：屏幕阅读器播报同步/错误提示） -->
+    <div class="pb-toast-wrap" role="status" aria-live="polite">
       <div v-for="t in toasts" :key="t.id" class="pb-toast" :class="`pb-toast--${t.type}`">
         <span class="pb-toast__icon">
           {{ t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : t.type === 'warn' ? '!' : 'ℹ' }}
@@ -187,11 +191,13 @@ const currentView = computed(() => {
           <p v-if="store.deleteConfirm.subtree_count > 1" class="pb-sm pb-muted">
             将连同其下 {{ store.deleteConfirm.subtree_count - 1 }} 条子条目一并删除。
           </p>
-          <p class="pb-sm pb-muted">删除为带墓碑（tombstone）的逻辑删除：保留审计与同步标记并同步到所有成员，如需恢复需在推送前撤销，历史可在服务端回收站查看。</p>
+          <p class="pb-sm pb-muted">删除为带墓碑（tombstone）的逻辑删除，会同步到所有成员；30 天内可在本机「回收站」恢复（恢复后重新加密上传）。</p>
         </div>
         <div class="pb-modal__foot">
-          <button class="pb-btn pb-btn--ghost" @click="store.deleteConfirm = null">取消</button>
-          <button class="pb-btn pb-btn--danger" @click="store.confirmDelete()">确认删除</button>
+          <button class="pb-btn pb-btn--ghost" :disabled="store.deleting" @click="store.deleteConfirm = null">取消</button>
+          <button class="pb-btn pb-btn--danger" :disabled="store.deleting" @click="store.confirmDelete()">
+            {{ store.deleting ? '删除中…' : '确认删除' }}
+          </button>
         </div>
       </div>
     </div>

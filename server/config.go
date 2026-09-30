@@ -39,6 +39,8 @@ type Config struct {
 	SSEMaxConn    int // SSE 每 token 并发上限
 	TombstoneDays int // 墓碑保留天数
 	TombstoneHour int // 墓碑清理执行时刻（UTC 小时）
+	// AuditRetentionDays 审计日志保留天数（§12.2 PB_AUDIT_RETENTION，默认 180；0 = 永久保留）
+	AuditRetentionDays int
 }
 
 // Load 从环境变量读取配置并应用默认值。
@@ -83,6 +85,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if c.TombstoneHour, err = intEnv("PB_TOMBSTONE_CLEAN_HOUR", 3); err != nil {
+		return nil, err
+	}
+	if c.AuditRetentionDays, err = intEnv("PB_AUDIT_RETENTION", 180); err != nil {
 		return nil, err
 	}
 

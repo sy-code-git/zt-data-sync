@@ -253,6 +253,8 @@ func (c *Core) finishUnlock(ds *store.DeviceState) (*api.UnlockResult, error) {
 	}
 	// 无设备 token → 首次使用，需走设备注册流程（§9.1）
 	out.NeedRegister = token == ""
+	// 回收站保留期清理（§7.4 本地 30 天）：解锁成功后异步执行，静默失败不阻塞解锁
+	go c.purgeRecycleBin()
 	return out, nil
 }
 
@@ -534,6 +536,47 @@ func (c *Core) AdminRevoke(userID, confirmName string) ([]string, error) {
 		return nil, err
 	}
 	return hc.AdminRevoke(userID, confirmName)
+}
+
+// AdminKeyfileReset keyfile 找回/换绑公钥（§4.4：keyfile 丢失时管理员重发）。
+// name 为该用户在服务端库中的显示名（前端从用户列表取），attestation 用它计算——
+// 服务端 verifyAttestation 以库中 name 为准（server/api/admin.go），此处必须传同一值。
+// 换绑后：该用户全部设备 token 立即作废、全部信封删除、所在组置 pending_rekey，
+// 需其导入新 keyfile 重新注册设备（新公钥信封由在线成员 auto-wrap 补齐）。
+func (c *Core) AdminKeyfileReset(userID, name, publicKey string) error {
+	hc, err := c.adminHC()
+	if err != nil {
+		return err
+	}
+	att, err := c.computeAttestation(name, publicKey)
+	if err != nil {
+		return err
+	}
+	_, err = hc.AdminKeyfileReset(userID, &proto.KeyfileResetRequest{
+		SM2PublicKey: publicKey, Attestation: att,
+	})
+	return err
+}
+
+// AdminRekey 触发组重加密（§6.3：仅置位 pending_rekey，执行由在线成员完成）。
+func (c *Core) AdminRekey(groupID string) error {
+	hc, err := c.adminHC()
+	if err != nil {
+		return err
+	}
+	_, err = hc.AdminRekey(groupID)
+	return err
+}
+
+// AdminListAudit 审计日志查询（§6.3：按 ts 倒序，上限 500）。
+// query 为原始查询串（如 "user_id=u1&action=device_register&from=..."），空串=不过滤。
+// Wails v2 仅支持 (T, error) 双返回值，故直接返回切片（无结果时为 nil）。
+func (c *Core) AdminListAudit(query string) ([]proto.AuditEventOut, error) {
+	hc, err := c.adminHC()
+	if err != nil {
+		return nil, err
+	}
+	return hc.AdminListAudit(query)
 }
 
 // RegisterRequest 提交注册申请（免登录，凭邀请码；§6.3 方案 C）。
@@ -855,8 +898,12 @@ func (c *Core) DeleteEntry(id string) error {
 		return err
 	}
 	// 墓碑 mutation：空密文 + Deleted=true（服务端墓碑 ciphertext 允许空，§5.2）
-	// 本地标记：先放入回收站（§7.3 #5 可恢复），再置墓碑待推送
-	_ = c.local.PutRecycleBin(id, le.Ciphertext, c.now().Unix())
+	// 本地标记：先放入回收站（§7.3 #5 可恢复），再置墓碑待推送。
+	// 回收站写入失败必须中止：若吞掉错误，条目会被墓碑化却永久不可恢复，
+	// "30 天内可恢复"的承诺静默落空（UI 删除确认弹窗已向用户承诺此语义）。
+	if err := c.local.PutRecycleBin(id, le.Ciphertext, c.now().Unix()); err != nil {
+		return fmt.Errorf("写入回收站失败（已中止删除，条目未受影响）: %w", err)
+	}
 	if err := c.local.UpsertLocalEntry(&store.LocalEntry{
 		ID: id, GroupID: le.GroupID, Seq: le.Seq, KeyVersion: le.KeyVersion, Ciphertext: "",
 		Dirty: true, Deleted: true, UpdatedAt: c.now().Unix(),
@@ -867,6 +914,122 @@ func (c *Core) DeleteEntry(id string) error {
 		go func() { _ = c.engine.SyncNow() }()
 	}
 	return nil
+}
+
+// ListRecycle 列出回收站条目（解锁态，按删除时间倒序；§7.4 本地 30 天）。
+// 归属字段（group_id/seq/kv）从 local_entries 墓碑行读取（回收站表只存密文+时间，
+// DeleteEntry 置墓碑时归属字段原样保留）。密文为空或解不开（换钥后旧 kv）的跳过，
+// 不阻塞列表——跳过的条目恢复时也会被拒绝。
+func (c *Core) ListRecycle() ([]api.RecycleEntryView, error) {
+	if !c.IsUnlocked() {
+		return nil, errors.New("未解锁")
+	}
+	items, err := c.local.ListRecycleBin()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]api.RecycleEntryView, 0, len(items))
+	for _, it := range items {
+		if it.Ciphertext == "" {
+			continue // 墓碑密文为空的删除无恢复素材
+		}
+		le, err := c.local.GetLocalEntry(it.ID)
+		if err != nil || le.GroupID == "" {
+			continue // 墓碑行缺失/归属字段丢失，无法解密（AAD 绑定 entry_id|group_id）
+		}
+		if !le.Deleted {
+			continue // 本地行已复活（他人恢复/重建后同步拉回）：回收素材作废，不可再"恢复"
+		}
+		plain, err := c.vault.DecryptPlaintext(le.GroupID, it.ID, it.Ciphertext)
+		if err != nil {
+			continue // 解不开（换钥后旧 kv / HMAC 失败）跳过
+		}
+		out = append(out, api.RecycleEntryView{
+			ID: it.ID, GroupID: le.GroupID, Plaintext: plain,
+			Seq: le.Seq, KeyVersion: le.KeyVersion, DeletedAt: it.DeletedAt,
+		})
+	}
+	return out, nil
+}
+
+// RestoreEntry 从回收站恢复条目（§7.4：恢复即追加新 mutation，服务端 changes
+// append-only，他人拉取后覆盖墓碑）。恢复推送与远端版本的交互：
+//   - 服务端仍是删除前版本（常见：刚删不久）→ 恢复的 Dirty 推送按正常 upsert 收敛
+//   - 他人已修改该条目 → 服务端 seq 更高，走既有三路合并/冲突流程，不丢数据
+//   - 他人也删除了该条目 → 恢复的墓碑覆盖语义按正常 upsert 重新创建，不复活墓碑冲突
+func (c *Core) RestoreEntry(id string) error {
+	if !c.IsUnlocked() {
+		return errors.New("未解锁")
+	}
+	items, err := c.local.ListRecycleBin()
+	if err != nil {
+		return err
+	}
+	var found *store.RecycleItem
+	for i := range items {
+		if items[i].ID == id {
+			found = &items[i]
+			break
+		}
+	}
+	if found == nil || found.Ciphertext == "" {
+		return errors.New("回收站中无此条目（或已过保留期被清理）")
+	}
+	// 从当前墓碑行继承归属字段（GroupID/Seq/KeyVersion/明文缓存基线）——
+	// 回收站表只存密文+时间（§7.4），归属字段在 local_entries 墓碑行中保留
+	// （DeleteEntry 置墓碑时原样带过）。若墓碑行已被清理，GetLocalEntry 返回
+	// ErrNoRows，此时无法恢复（密文 AAD 绑定 entry_id|group_id，缺归属解不开）。
+	le, err := c.local.GetLocalEntry(id)
+	if err != nil {
+		return fmt.Errorf("本地墓碑行缺失，无法恢复: %w", err)
+	}
+	if le.GroupID == "" {
+		return errors.New("墓碑行归属字段缺失（GroupID 为空），无法恢复")
+	}
+	// 本地行必须仍是墓碑：若同步已把活跃行拉回（他人恢复/重建了同一条目），
+	// 用本机删除前的旧密文恢复会以 Dirty 覆盖推送，静默回退他人版本（跨端竞态）。
+	if !le.Deleted {
+		return errors.New("该条目已被同步恢复（他人重建），本机回收站记录已作废")
+	}
+	// 校验密文可解（不可解则拒绝恢复，避免恢复出一条坏数据；AAD 绑定 entry_id|group_id）
+	plain, err := c.vault.DecryptPlaintext(le.GroupID, id, found.Ciphertext)
+	if err != nil {
+		return fmt.Errorf("回收密文无法解密（可能密钥版本过旧或被篡改）: %w", err)
+	}
+	// 重建明文缓存（墓碑行置 DeleteEntry 时已清空 PlaintextCache——UpsertLocalEntry
+	// 零值覆盖；恢复时从回收密文重新加密缓存，ListEntries 立即可见）
+	plaintextCache, err := c.vault.EncryptCache(plain)
+	if err != nil {
+		return fmt.Errorf("重建明文缓存失败: %w", err)
+	}
+	// 恢复：本地行写回密文（继承 group_id/seq/kv——服务端按这些字段对账），
+	// 清墓碑、置 Dirty 待推送；推送成功后服务端 changes 追加该 upsert，覆盖墓碑。
+	if err := c.local.UpsertLocalEntry(&store.LocalEntry{
+		ID: id, GroupID: le.GroupID, Seq: le.Seq, KeyVersion: le.KeyVersion,
+		PlaintextCache: plaintextCache, BaseEnc: nil,
+		Ciphertext: found.Ciphertext,
+		Dirty:      true, Deleted: false, UpdatedAt: c.now().Unix(),
+	}); err != nil {
+		return err
+	}
+	// 恢复成功后清回收站记录（再次删除会重新写入）
+	if err := c.local.DeleteRecycleBin(id); err != nil {
+		// 清理失败不影响恢复本身，只留一条日志级别提示
+		_ = err
+	}
+	if c.engine != nil && c.syncMode != SyncModeManual {
+		go func() { _ = c.engine.SyncNow() }()
+	}
+	return nil
+}
+
+// purgeRecycleRetention 回收站保留期（§7.4：本地 30 天）。
+const purgeRecycleRetention = 30 * 24 * time.Hour
+
+// purgeRecycleBin 清理超过保留期的回收站条目（解锁成功后调用，静默失败不阻塞解锁）。
+func (c *Core) purgeRecycleBin() {
+	cutoff := c.now().Add(-purgeRecycleRetention).Unix()
+	_, _ = c.local.PurgeRecycleBin(cutoff)
 }
 
 // ResolveConflict 应用冲突解决结果并 push（§7.3 三路合并）。

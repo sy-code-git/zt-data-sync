@@ -2,9 +2,11 @@
 // 方案 J 列表页：项目 tab + 左侧环境→IP 子树 + 右侧下属列表（层级自适应）。
 // 核心：IP 直查（左树点 IP → 该 IP 账号表）、项目浏览（1-2 跳窥全貌）、
 // 账号 chips 弹窗（掩码+显示切换+复制）、节点级列配置（localStorage，不上传）。
-import {computed, ref, watch, onBeforeUnmount} from 'vue'
+import {computed, nextTick, ref, watch, onMounted, onBeforeUnmount} from 'vue'
 import {useAppStore} from '../store'
+import {api, plainToUtf8} from '../api'
 import {useModalFocus} from '../composables/useModalFocus'
+import AccountModal from '../components/AccountModal.vue'
 
 const store = useAppStore()
 
@@ -111,8 +113,28 @@ function focusIp(ip, envId) {
   store.pjIp = ip
 }
 
-/* ---- 搜索过滤（面板内过滤 IP / 账号） ---- */
-const search = ref('')
+/* ---- 搜索过滤（面板内过滤 IP / 账号） ----
+   搜索词放在 store：工作台的搜索框与这里共用同一份（工作台输入后跳过来即已生效），
+   Ctrl/⌘+K 也走 store.openSearch() → searchFocusTick 递增 → 这里聚焦。
+   注意：onMounted 也要检查一次——从工作台按 Ctrl+K 时 view 先变、本组件随后才挂载，
+   挂载时 tick 已经递增过，只靠 watch 是收不到这次变化的（实测漏聚焦）。 */
+const search = computed({
+  get: () => store.listSearch,
+  set: (v) => { store.listSearch = v },
+})
+const searchInput = ref(null)
+
+function focusSearchIfRequested() {
+  if (store.searchFocusTick === store.searchFocusHandled) return
+  store.searchFocusHandled = store.searchFocusTick
+  nextTick(() => {
+    searchInput.value?.focus()
+    searchInput.value?.select()
+  })
+}
+
+onMounted(focusSearchIfRequested)
+watch(() => store.searchFocusTick, focusSearchIfRequested)
 const kw = computed(() => search.value.trim().toLowerCase())
 function kwHit(...vals) {
   if (!kw.value) return true
@@ -207,12 +229,8 @@ function sshUser(accs) {
   return accs.find((a) => a.fields?.username === 'root') || accs[0]
 }
 
-/* ---- 账号密码弹窗 ---- */
-const accModal = ref(null) // {entry, path, revealed}
-const accModalRef = ref(null)
-useModalFocus(accModalRef, computed(() => !!accModal.value))
-
-let pwTimer = null
+/* ---- 账号密码弹窗（视图壳；UI 与交互在 components/AccountModal.vue 内实现） ---- */
+const accModal = ref(null) // {entry, path}
 
 function showAccount(id) {
   const e = entries.value.find((x) => x.id === id)
@@ -225,30 +243,68 @@ function showAccount(id) {
     path.unshift(n)
     p = n.parent_id
   }
-  accModal.value = {entry: e, path, revealed: false}
-  clearTimeout(pwTimer)
-}
-
-function revealPw() {
-  if (!accModal.value) return
-  accModal.value.revealed = !accModal.value.revealed
-  if (accModal.value.revealed) {
-    // 显示 20 秒后自动重新掩码
-    clearTimeout(pwTimer)
-    pwTimer = setTimeout(() => {
-      if (accModal.value) accModal.value.revealed = false
-    }, 20000)
-  }
+  accModal.value = {entry: e, path}
 }
 
 function closeAccModal() {
   accModal.value = null
-  clearTimeout(pwTimer)
 }
 
+/* ---- 回收站（§7.4 本地 30 天：删除时可恢复） ---- */
+const recycleModal = ref(false)
+const recycleItems = ref([])
+const recycleBusy = ref(false)
+
+async function openRecycle() {
+  recycleModal.value = true
+  recycleBusy.value = true
+  try {
+    const items = (await api.ListRecycle()) || []
+    // 标题/类型在明文 JSON 里（core 不解析，UI 解出展示）。
+    // 解码必须走 plainToUtf8 同源路径：Wails 下 Go []byte 的 wire 格式是 base64 字符串，
+    // 直接 new Uint8Array(it.plaintext) 会把字符串打散成错误字节（标题全部退化为显示 id）。
+    recycleItems.value = items.map((it) => {
+      let title = it.id
+      let type = ''
+      try {
+        const p = JSON.parse(plainToUtf8(it.plaintext))
+        title = p.title || title
+        type = p.type || type
+      } catch (e) { /* 明文解析失败按 id 展示 */ }
+      return {...it, title, typeLabel: typeMeta[type]?.label || ''}
+    })
+  } catch (e) {
+    store.toast(String(e.message || e), 'error')
+  } finally {
+    recycleBusy.value = false
+  }
+}
+
+async function restoreEntry(id) {
+  recycleBusy.value = true
+  try {
+    await api.RestoreEntry(id)
+    store.toast('已恢复（重新加密上传后对所有成员可见）', 'success')
+    recycleItems.value = recycleItems.value.filter((x) => x.id !== id)
+    store.refreshEntries() // 刷新列表（恢复的条目重新出现）
+  } catch (e) {
+    store.toast(String(e.message || e), 'error')
+  } finally {
+    recycleBusy.value = false
+  }
+}
+
+// 归属行（环境 · IP · 备注）
+const accSubtitle = computed(() => {
+  const m = accModal.value
+  if (!m) return ''
+  const env = m.path.find((n) => n.type === 'env')?.title
+  return [env, m.entry.fields?.ip].filter(Boolean).join(' · ') +
+      (m.entry.fields?.remark ? ' · ' + m.entry.fields.remark : '')
+})
+
 // 编辑入口：始终以最新 entries 中的条目打开（弹窗持有的是旧引用，删除/同步后可能过期）。
-// 注意：关闭弹窗必须放在「取到条目之后」——若模板写成 `closeAccModal(); openEditFresh(accModal.entry)`，
-// accModal 会先被置空，随后读取 .entry 抛 TypeError 使编辑入口失效（实测复现）。
+// 注意：关闭弹窗必须放在「取到条目之后」——顺序颠倒会读到已置空的 accModal（组件化前踩过）。
 function openEditFresh(entry) {
   if (!entry) return closeAccModal()
   const fresh = entries.value.find((x) => x.id === entry.id) || entry
@@ -256,17 +312,11 @@ function openEditFresh(entry) {
   store.openEdit(fresh)
 }
 
-// 删除入口：与编辑入口同理——先取出条目再关弹窗（顺序颠倒会读到已置空的 accModal）。
+// 删除入口：条目由弹窗组件 emit 传入（不再从已置空的 accModal 里读）。
 // 实际删除走 store.askDelete → 确认弹窗（含子树条数）→ 级联墓碑，推送后同步给其他成员。
-function askDeleteFromModal() {
-  const entry = accModal.value?.entry
+function askDeleteFromModal(entry) {
   closeAccModal()
   if (entry) store.askDelete(entry)
-}
-
-const PW_RE = /pass|secret|token|pwd|密码/i
-function pwFieldOf(e) {
-  return Object.entries(e.fields || {}).find(([k]) => PW_RE.test(k))
 }
 
 /* ---- IP 详情弹窗 ---- */
@@ -314,7 +364,7 @@ async function syncNow() {
 /* ---- Esc 关闭弹窗 / 清理 ---- */
 const onKeydown = (e) => {
   if (e.key !== 'Escape') return
-  if (accModal.value) return closeAccModal()
+  // 账号弹窗的 Esc 由 AccountModal 自己处理，此处不重复
   if (ipModal.value) ipModal.value = null
   if (colCfgOpen.value) colCfgOpen.value = false
 }
@@ -325,7 +375,6 @@ onBeforeUnmount(() => {
   if (typeof document !== 'undefined') {
     document.removeEventListener('keydown', onKeydown)
   }
-  clearTimeout(pwTimer)
   clearTimeout(copyText._t)
 })
 
@@ -344,16 +393,29 @@ watch(() => store.entries, () => {
 
 <template>
   <div class="pj-view">
-    <!-- 顶部：项目 tab -->
+    <!-- 顶部：项目 tab（键盘可达：Tab 聚焦 + Enter/Space 切换） -->
     <div class="pj-tabs">
       <div
           v-for="p in projects"
           :key="p.id"
           class="pj-tab"
           :class="{'pj-tab--on': p.id === proj?.id}"
+          role="button"
+          tabindex="0"
+          :aria-current="p.id === proj?.id ? 'true' : undefined"
           @click="switchProject(p.id)"
+          @keydown.enter="switchProject(p.id)"
+          @keydown.space.prevent="switchProject(p.id)"
       >{{ p.title }}</div>
-      <div class="pj-tab pj-tab--new" title="新建项目" @click="store.openNew({type: 'project'})">＋ 新项目</div>
+      <div
+          class="pj-tab pj-tab--new"
+          title="新建项目"
+          role="button"
+          tabindex="0"
+          @click="store.openNew({type: 'project'})"
+          @keydown.enter="store.openNew({type: 'project'})"
+          @keydown.space.prevent="store.openNew({type: 'project'})"
+      >＋ 新项目</div>
     </div>
 
     <!-- 工具栏 -->
@@ -368,7 +430,10 @@ watch(() => store.entries, () => {
         <button v-else-if="store.pjFocus" class="pb-btn pb-btn--primary pb-btn--sm" @click="store.openNew({type: 'account', parentEnvId: store.pjFocus})">＋ 在此环境新建账号</button>
         <button v-else-if="proj" class="pb-btn pb-btn--primary pb-btn--sm" @click="store.openNew({type: 'env', parentProjId: proj.id})">＋ 新建环境</button>
         <button v-else class="pb-btn pb-btn--primary pb-btn--sm" @click="store.openNew({type: 'project'})">＋ 新建项目</button>
-        <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="syncNow">⟳ 同步</button>
+        <button class="pb-btn pb-btn--ghost pb-btn--sm" :disabled="store.syncing" @click="syncNow">
+          {{ store.syncing ? '同步中…' : '⟳ 同步' }}
+        </button>
+        <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="openRecycle">🗑 回收站</button>
         <button class="pb-btn pb-btn--ghost pb-btn--sm" @click="store.goto('workbench')">🏠 工作台</button>
         <button v-if="store.isAdmin" class="pb-btn pb-btn--ghost pb-btn--sm" @click="store.goto('admin')">🛡 管理</button>
         <button class="pb-iconbtn" title="设置" @click="store.goto('settings')">⚙</button>
@@ -462,9 +527,11 @@ watch(() => store.entries, () => {
           </div>
           <div class="pj-pane__right">
             <input
+                ref="searchInput"
                 v-model="search"
                 class="pj-pane__filter"
-                placeholder="🔍 过滤 IP / 账号"
+                placeholder="🔍 过滤 IP / 账号（Ctrl+K）"
+                aria-label="过滤 IP 或账号"
                 spellcheck="false"
             />
             <div class="pj-colcfg-pop">
@@ -620,55 +687,15 @@ watch(() => store.entries, () => {
       </div>
     </div>
 
-    <!-- 账号密码弹窗 -->
-    <div v-if="accModal" class="pb-modal-mask" @click.self="closeAccModal">
-      <div ref="accModalRef" class="pb-modal pb-glass pb-glass--strong" role="dialog" aria-modal="true">
-        <div class="pb-modal__head">
-          <span class="pb-modal__title">账号 · {{ accModal.entry.fields?.username || accModal.entry.title }}</span>
-          <button class="pb-iconbtn" @click="closeAccModal">✕</button>
-        </div>
-        <div class="pb-modal__body">
-          <div class="pb-xs pb-muted">
-            {{ [accModal.path.find((n) => n.type === 'env')?.title, accModal.entry.fields?.ip].filter(Boolean).join(' · ') }}
-            {{ accModal.entry.fields?.remark ? ' · ' + accModal.entry.fields.remark : '' }}
-          </div>
-          <div v-for="(v, k) in accModal.entry.fields" :key="k">
-            <div v-if="!PW_RE.test(k)" class="detail-field">
-              <span class="detail-field__label">{{ k }}</span>
-              <div class="detail-field__value">
-                <span class="pb-truncate pb-fill pb-mono">{{ v }}</span>
-                <button class="pb-iconbtn" title="复制" @click="copyText(v)">⧉</button>
-              </div>
-            </div>
-          </div>
-          <template v-if="pwFieldOf(accModal.entry)">
-            <div class="detail-field">
-              <span class="detail-field__label">{{ pwFieldOf(accModal.entry)[0] }}</span>
-              <div class="detail-field__value">
-                <span class="pb-truncate pb-fill pb-mono">{{ accModal.revealed ? pwFieldOf(accModal.entry)[1] : '••••••••' }}</span>
-                <button class="detail-field__reveal" title="显示/隐藏" @click="revealPw">👁</button>
-                <button class="pb-iconbtn" title="复制" @click="copyText(pwFieldOf(accModal.entry)[1])">⧉</button>
-              </div>
-            </div>
-            <p class="pb-xs pb-muted" style="font-size: 12px">密码显示 20 秒后自动重新掩码 · 复制后 30 秒自动清空剪贴板</p>
-          </template>
-        </div>
-        <div class="pb-modal__foot">
-          <button
-              class="pb-btn pb-btn--danger"
-              @click="askDeleteFromModal"
-          >🗑 删除此账号</button>
-          <button
-              class="pb-btn pb-btn--ghost"
-              @click="openEditFresh(accModal.entry)"
-          >✏ 编辑此账号</button>
-          <button
-              class="pb-btn pb-btn--primary"
-              @click="copyText(`${accModal.entry.fields?.username || accModal.entry.title}\n${pwFieldOf(accModal.entry)?.[1] || ''}`)"
-          >⧉ 复制账号+密码</button>
-        </div>
-      </div>
-    </div>
+    <!-- 账号密码弹窗（组件：掩码 / 20s 重掩 / 复制 30s 清空 / 焦点陷阱 / Esc） -->
+    <AccountModal
+        v-if="accModal"
+        :entry="accModal.entry"
+        :subtitle="accSubtitle"
+        @close="closeAccModal"
+        @edit="openEditFresh"
+        @delete="askDeleteFromModal"
+    />
 
     <!-- IP 详情弹窗 -->
     <div v-if="ipModal" class="pb-modal-mask" @click.self="ipModal = null">
@@ -723,6 +750,45 @@ watch(() => store.entries, () => {
               class="pb-btn pb-btn--primary"
               @click="copyText(`ssh ${sshUser(ipModal.accs)?.fields?.username || 'root'}@${ipModal.ip}`)"
           >⧉ 复制 SSH 命令</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 回收站（§7.4 本地 30 天） -->
+    <div v-if="recycleModal" class="pb-modal-mask" @click.self="recycleModal = false">
+      <div class="pb-modal pb-glass pb-glass--strong" role="dialog" aria-modal="true" aria-label="回收站">
+        <div class="pb-modal__head">
+          <h3>🗑 回收站</h3>
+          <button class="pb-iconbtn" title="关闭" @click="recycleModal = false">✕</button>
+        </div>
+        <div class="pb-modal__body">
+          <p class="pb-xs pb-muted" style="margin-bottom: 10px">
+            删除的条目在本机保留 30 天，期间可恢复（恢复后重新加密上传，对所有成员可见）。超过保留期将自动清理。
+          </p>
+          <p v-if="recycleBusy" class="pb-xs pb-muted">加载中…</p>
+          <p v-else-if="!recycleItems.length" class="pb-xs pb-muted">回收站为空</p>
+          <div v-else class="detail-table" style="max-height: 50vh; overflow-y: auto">
+            <table class="pb-table">
+              <thead>
+              <tr><th>标题</th><th>类型</th><th>删除时间</th><th></th></tr>
+              </thead>
+              <tbody>
+              <tr v-for="it in recycleItems" :key="it.id">
+                <td class="pb-mono">{{ it.title }}</td>
+                <td style="color: var(--text-2)">{{ it.typeLabel || '—' }}</td>
+                <td class="pb-mono" style="color: var(--text-3)">{{ fmtTime(it.deleted_at) }}</td>
+                <td>
+                  <button class="pb-btn pb-btn--ghost pb-btn--sm" :disabled="recycleBusy" @click="restoreEntry(it.id)">
+                    ♻ 恢复
+                  </button>
+                </td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="pb-modal__foot">
+          <button class="pb-btn pb-btn--ghost" @click="recycleModal = false">关闭</button>
         </div>
       </div>
     </div>

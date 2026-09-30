@@ -3,11 +3,12 @@
 // - 新建态：归属级联下拉（项目 › 环境，自绘 PbSelect）+ 类型下拉 + ip 上下文预填
 // - 编辑态：只读归属链
 // - 保存后自动定位到新条目所在环境/IP（方案 J 列表页状态联动）
-import {ref, computed, onMounted} from 'vue'
+import {ref, computed, onMounted, onBeforeUnmount} from 'vue'
 import {useAppStore} from '../store'
 import {api} from '../api'
 import PbSelect from '../components/PbSelect.vue'
 import PasswordGenerator from '../components/PasswordGenerator.vue'
+import {useModalFocus} from '../composables/useModalFocus'
 
 const store = useAppStore()
 
@@ -154,6 +155,15 @@ function removeCustom(key) {
 
 // 字段删除确认弹窗状态（field=字段 / custom=自定义字段）
 const fieldConfirm = ref(null)
+const fieldConfirmRef = ref(null)
+useModalFocus(fieldConfirmRef, computed(() => !!fieldConfirm.value))
+
+// Esc 关闭字段删除确认（无障碍：与其它弹窗一致）
+const onKeydown = (e) => {
+  if (e.key === 'Escape' && fieldConfirm.value) fieldConfirm.value = null
+}
+document.addEventListener('keydown', onKeydown)
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 function confirmRemoveField() {
   const c = fieldConfirm.value
@@ -379,7 +389,7 @@ function fillPassword(pw) {
 
     <!-- 删除字段确认弹窗（对齐原型 removeField 确认） -->
     <div v-if="fieldConfirm" class="pb-modal-mask" @click.self="fieldConfirm = null">
-      <div class="pb-modal pb-glass pb-glass--strong" role="dialog" aria-modal="true">
+      <div ref="fieldConfirmRef" class="pb-modal pb-glass pb-glass--strong" role="dialog" aria-modal="true" aria-label="删除字段">
         <div class="pb-modal__head">
           <span class="pb-modal__title">删除字段</span>
           <button class="pb-iconbtn" @click="fieldConfirm = null">✕</button>

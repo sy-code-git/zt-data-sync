@@ -278,6 +278,31 @@ func (a *App) AdminRevoke(userID, confirmName string) ([]string, error) {
 	return a.core.AdminRevoke(userID, confirmName)
 }
 
+// AdminKeyfileReset keyfile 找回/换绑公钥（name 为服务端库中显示名，§4.4）。
+// 换绑后该用户全部设备作废、需导入新 keyfile 重新注册设备。
+func (a *App) AdminKeyfileReset(userID, name, publicKey string) error {
+	if a.core == nil {
+		return errors.New("核心库未就绪")
+	}
+	return a.core.AdminKeyfileReset(userID, name, publicKey)
+}
+
+// AdminRekey 触发组重加密（置位 pending_rekey，执行由在线成员完成）。
+func (a *App) AdminRekey(groupID string) error {
+	if a.core == nil {
+		return errors.New("核心库未就绪")
+	}
+	return a.core.AdminRekey(groupID)
+}
+
+// AdminListAudit 审计日志查询（倒序上限 500；query 为原始查询串，空=不过滤）。
+func (a *App) AdminListAudit(query string) ([]proto.AuditEventOut, error) {
+	if a.core == nil {
+		return nil, errors.New("核心库未就绪")
+	}
+	return a.core.AdminListAudit(query)
+}
+
 // RegisterRequest 提交注册申请（免登录，凭邀请码；返回 pending=待审核 / approved=已开户）。
 func (a *App) RegisterRequest(inviteCode, username, publicKey, deviceName string) (string, error) {
 	if a.core == nil {
@@ -459,6 +484,22 @@ func (a *App) DeleteEntry(id string) error {
 	return a.core.DeleteEntry(id)
 }
 
+// ListRecycle 回收站列表（§7.4 本地 30 天；标题等明文由 core 解出透传）。
+func (a *App) ListRecycle() ([]api.RecycleEntryView, error) {
+	if a.core == nil {
+		return nil, errors.New("核心库未就绪")
+	}
+	return a.core.ListRecycle()
+}
+
+// RestoreEntry 从回收站恢复条目（恢复即追加新 mutation，推送后覆盖墓碑，§7.4）。
+func (a *App) RestoreEntry(id string) error {
+	if a.core == nil {
+		return errors.New("核心库未就绪")
+	}
+	return a.core.RestoreEntry(id)
+}
+
 // ResolveConflict 冲突解决（§7.3 三路合并）；manual 非 nil 表示手动编辑后的明文 JSON。
 func (a *App) ResolveConflict(id string, useLocal bool, manual []byte) error {
 	if a.core == nil {
@@ -539,22 +580,45 @@ func (a *App) OpenFileDialog(title string) (string, error) {
 	return path, nil
 }
 
-// SaveFileDialog 选择保存路径（导出私钥备份用）。
+// SaveFileDialog 选择保存路径（导出私钥备份 / 审计 CSV 导出等）。
+// defaultName/defaultExt 为空时保持 keyfile 备份的既有默认（兼容旧调用）。
 func (a *App) SaveFileDialog(title string) (string, error) {
+	return a.SaveFileDialogAs(title, "", "")
+}
+
+// SaveFileDialogAs SaveFileDialog 的泛化形式：自定义默认文件名与扩展名过滤器。
+func (a *App) SaveFileDialogAs(title, defaultName, defaultExt string) (string, error) {
 	if a.ctx == nil {
 		return "", errors.New("窗口上下文未就绪")
 	}
+	if defaultName == "" {
+		defaultName = "passbook-backup.key"
+	}
+	filters := []runtime.FileFilter{{DisplayName: "Keyfile", Pattern: "*.key"}}
+	if defaultExt == "csv" {
+		filters = []runtime.FileFilter{{DisplayName: "CSV 文件", Pattern: "*.csv"}}
+	}
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           title,
-		DefaultFilename: "passbook-backup.key",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Keyfile", Pattern: "*.key"},
-		},
+		DefaultFilename: defaultName,
+		Filters:         filters,
 	})
 	if err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+// WriteTextFile 把文本内容写入本地文件（审计 CSV 导出用；UTF-8，自动带 BOM 兼容 Excel）。
+func (a *App) WriteTextFile(path, content string) error {
+	if path == "" {
+		return errors.New("文件路径为空")
+	}
+	if content == "" {
+		return errors.New("内容为空")
+	}
+	// UTF-8 BOM：Excel 双击打开 CSV 时按 BOM 识别 UTF-8，否则中文乱码
+	return os.WriteFile(path, []byte("\ufeff"+content), 0o600)
 }
 
 // ExportKeyfile 导出私钥备份（keyfile 格式）到指定路径。

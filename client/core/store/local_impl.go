@@ -338,6 +338,39 @@ func (s *sqliteLocal) PutRecycleBin(id string, ciphertext string, deletedAt int6
 	return err
 }
 
+// ListRecycleBin 列出回收站全部条目（按删除时间倒序，标题由 core 层解密后补）。
+func (s *sqliteLocal) ListRecycleBin() ([]RecycleItem, error) {
+	rows, err := s.db.Query(`SELECT entry_id, ciphertext, deleted_at FROM recycle_bin ORDER BY deleted_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RecycleItem
+	for rows.Next() {
+		var it RecycleItem
+		if err := rows.Scan(&it.ID, &it.Ciphertext, &it.DeletedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// DeleteRecycleBin 删除单条回收站记录（恢复成功后清掉，避免残留占位）。
+func (s *sqliteLocal) DeleteRecycleBin(id string) error {
+	_, err := s.db.Exec(`DELETE FROM recycle_bin WHERE entry_id = ?`, id)
+	return err
+}
+
+// PurgeRecycleBin 清理超过保留期的回收站条目（§7.4 本地 30 天），返回清理条数。
+func (s *sqliteLocal) PurgeRecycleBin(olderThanUnix int64) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM recycle_bin WHERE deleted_at < ?`, olderThanUnix)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func nullStr(s string) any {
 	if s == "" {
 		return nil

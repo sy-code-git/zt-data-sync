@@ -196,6 +196,9 @@ type Tx interface {
 	DeleteOldKVEnvelopes(groupID string, newKV int) error
 	// DeleteOldTombstones 物理删除早于 before 的墓碑（§7.4 定时清理）。
 	DeleteOldTombstones(before int64) error
+	// DeleteOldAudit 物理删除早于 before 的审计日志（保留期清理，§3.6/§12.2 PB_AUDIT_RETENTION；
+	// 0 = 永久保留）。audit_log append-only 的唯一例外：仅此入口按保留期批量删除。
+	DeleteOldAudit(before int64) (int64, error)
 }
 
 // Store 存储接口（读方法 + 事务）。

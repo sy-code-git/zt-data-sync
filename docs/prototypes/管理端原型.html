@@ -156,6 +156,14 @@ input,textarea,select{font-family:inherit;color:inherit;font-size:14px}
 .admin__count{font-size:12px;color:var(--text-3);font-weight:500}
 .admin__pubrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 
+/* 审计列表（与客户端 AdminView 同名类，便于对照实现） */
+.admin__audit-list{display:flex;flex-direction:column;gap:6px}
+.admin__audit-row{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:var(--radius-md);background:var(--glass-bg);border:1px solid var(--glass-border);min-width:0}
+.admin__audit-ts{flex-shrink:0;font-family:var(--font-mono)}
+.admin__audit-action{flex-shrink:0}
+.admin__audit-user{flex-shrink:0;font-weight:600}
+.admin__audit-meta{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 /* 原型演示用样式已随 demo-bar 一并移除（tab 导航正式化） */
 </style>
 </head>
@@ -244,6 +252,44 @@ let devices=[
   {device_id:'d2',name:'李四的台式机',hostname:'DESKTOP-2',ip:'10.0.0.12',user_name:'李四',online:false,last_seen:1748000000},
   {device_id:'d3',name:'王五的工作站',hostname:'DB-WORK',ip:'10.0.0.20',user_name:'王五',online:true,last_seen:1749105000},
 ];
+let audits=[
+  {id:14,ts:1749105600,action:'device_register',user_id:'u1',user_name:'张三',device_name:'张三的笔记本',hostname:'LAPTOP-7',ip:'10.0.0.9',detail:''},
+  {id:13,ts:1749105480,action:'push',user_id:'u1',user_name:'张三',device_name:'张三的笔记本',hostname:'LAPTOP-7',ip:'10.0.0.9',detail:'entry 3 条'},
+  {id:12,ts:1749105000,action:'device_refresh',user_id:'u1',user_name:'张三',device_name:'张三的笔记本',hostname:'LAPTOP-7',ip:'10.0.0.9',detail:''},
+  {id:11,ts:1749102000,action:'keyfile_reset',user_id:'u2',user_name:'李四',device_name:'',hostname:'',ip:'10.0.0.1',detail:'全部设备作废 + 置 pending_rekey'},
+  {id:10,ts:1749098400,action:'rekey',user_id:'u0',user_name:'系统管理员',device_name:'ADMIN-PC',hostname:'ADMIN-PC',ip:'10.0.0.1',detail:'组 SRE 组'},
+  {id:9,ts:1749094800,action:'add_member',user_id:'u3',user_name:'王五',device_name:'',hostname:'',ip:'10.0.0.1',detail:'加入 DBA 组'},
+  {id:8,ts:1749091200,action:'register_request',user_id:'',user_name:'',device_name:'DESKTOP-9',hostname:'DESKTOP-9',ip:'10.0.0.33',detail:'工号 zhaoliu'},
+  {id:7,ts:1749087600,action:'reject_register',user_id:'u0',user_name:'系统管理员',device_name:'ADMIN-PC',hostname:'ADMIN-PC',ip:'10.0.0.1',detail:'工号 sunqi'},
+  {id:6,ts:1749084000,action:'create_invite',user_id:'u0',user_name:'系统管理员',device_name:'ADMIN-PC',hostname:'ADMIN-PC',ip:'10.0.0.1',detail:'有效期 3 天'},
+  {id:5,ts:1749080400,action:'create_user',user_id:'u3',user_name:'王五',device_name:'',hostname:'',ip:'10.0.0.1',detail:''},
+  {id:4,ts:1749076800,action:'revoke',user_id:'u9',user_name:'赵六',device_name:'',hostname:'',ip:'10.0.0.1',detail:'所在组置 pending_rekey'},
+  {id:3,ts:1749073200,action:'disable_device',user_id:'u2',user_name:'李四',device_name:'李四的台式机',hostname:'DESKTOP-2',ip:'10.0.0.12',detail:''},
+  {id:2,ts:1749069600,action:'archive',user_id:'u0',user_name:'系统管理员',device_name:'ADMIN-PC',hostname:'ADMIN-PC',ip:'10.0.0.1',detail:'组 遗留组'},
+  {id:1,ts:1749066000,action:'bootstrap',user_id:'u0',user_name:'系统管理员',device_name:'ADMIN-PC',hostname:'ADMIN-PC',ip:'10.0.0.1',detail:'首启引导'},
+];
+let auditUserFilter='';
+let auditActionFilter='';
+const AUDIT_ACTIONS=[
+  ['','全部动作'],
+  ['device_register','设备注册（历史登录）'],
+  ['device_refresh','token 刷新（历史登录）'],
+  ['bootstrap','首启引导'],
+  ['create_user','开户'],
+  ['revoke','吊销'],
+  ['keyfile_reset','换钥'],
+  ['create_group','建组'],
+  ['add_member','加成员'],
+  ['remove_member','移出成员'],
+  ['rekey','触发重加密'],
+  ['archive','归档'],
+  ['unarchive','重启'],
+  ['create_invite','生成邀请码'],
+  ['register_request','注册申请'],
+  ['reject_register','拒绝申请'],
+  ['disable_device','禁用设备'],
+  ['push','推送变更'],
+];
 let showAdmins=false;
 let selectedGroup=null;
 let showDevices=false;
@@ -253,7 +299,7 @@ function visibleUsers(){return showAdmins?users:users.filter(u=>u.role!=='admin'
 
 /* ============ 渲染 ============ */
 function render(){
-  const views={overview:renderOverview,groups:renderGroups,open:renderOpen,review:renderReview,invite:renderInvite,devices:renderDevices};
+  const views={overview:renderOverview,groups:renderGroups,open:renderOpen,review:renderReview,invite:renderInvite,devices:renderDevices,audit:renderAudit};
   (views[currentTab]||renderOverview)();
   renderNav();
 }
@@ -266,6 +312,7 @@ function renderNav(){
     ['review','✅ 注册审核',regRequests.length],
     ['invite','🎟 邀请码',invites.filter(i=>i.status==='active').length],
     ['devices','🖥 设备',devices.filter(d=>d.online).length],
+    ['audit','📜 审计',null],
   ];
   nav.innerHTML=items.map(([v,label,count])=>`<button class="admin-nav__item ${currentTab===v?'on':''}" onclick="gotoTab('${v}')">${label}${count!=null?` <span class="pb-badge ${v==='review'&&count>0?'pb-badge--warning':'pb-badge--neutral'}">${count}</span>`:''}</button>`).join('');
 }
@@ -298,6 +345,7 @@ function renderOverview(){
         <button class="pb-btn pb-btn--ghost" onclick="gotoTab('invite')">🎟 生成邀请码</button>
         <button class="pb-btn pb-btn--ghost" onclick="gotoTab('groups')">👥 组管理</button>
         <button class="pb-btn pb-btn--ghost" onclick="gotoTab('open')">🧑‍💼 成员开户</button>
+        <button class="pb-btn pb-btn--ghost" onclick="gotoTab('audit')">📜 审计日志</button>
       </div>
     </div>
     <div class="pb-glass admin__panel">
@@ -534,6 +582,38 @@ function renderDevices(){
           </div>
           <span class="pb-badge ${d.online?'pb-badge--success':'pb-badge--neutral'}">${d.online?'在线':'离线'}</span>
         </div>`).join('')||'<p class="pb-xs pb-muted">暂无设备</p>'}
+    </div>
+  </div>`;
+}
+
+/* ---- 审计 ---- */
+function renderAudit(){
+  const list=audits.filter(e=>
+    (!auditUserFilter||e.user_id===auditUserFilter)&&
+    (!auditActionFilter||e.action===auditActionFilter));
+  stage.innerHTML=`
+  ${renderHead('审计日志 · 操作与历史登录追溯')}
+  <div class="pb-glass admin__panel">
+    <div class="admin__panel-title">审计日志（${list.length} 条，倒序上限 500）
+      <button class="pb-btn pb-btn--ghost pb-btn--sm" onclick="render()">⟳ 刷新</button>
+    </div>
+    <div class="admin__input-row">
+      <select class="pb-input" style="appearance:auto;cursor:pointer" onchange="auditUserFilter=this.value;render()">
+        <option value="">全部用户</option>
+        ${users.map(u=>`<option value="${u.user_id}" ${auditUserFilter===u.user_id?'selected':''}>${esc(u.name)}（${esc(u.username)}）</option>`).join('')}
+      </select>
+      <select class="pb-input" style="appearance:auto;cursor:pointer" onchange="auditActionFilter=this.value;render()">
+        ${AUDIT_ACTIONS.map(([v,l])=>`<option value="${v}" ${auditActionFilter===v?'selected':''}>${esc(l)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="admin__audit-list">
+      ${list.map(e=>`
+        <div class="admin__audit-row">
+          <span class="pb-xs pb-muted admin__audit-ts">${fmtTime(e.ts)}</span>
+          <span class="pb-badge pb-badge--neutral admin__audit-action">${esc(e.action)}</span>
+          <span class="pb-xs admin__audit-user">${esc(e.user_name||e.user_id||'—')}</span>
+          <span class="pb-xs pb-muted admin__audit-meta">${esc(e.device_name||e.hostname||'—')} · ${esc(e.ip||'无 IP')}${e.detail?' · '+esc(e.detail):''}</span>
+        </div>`).join('')||'<p class="pb-xs pb-muted">暂无审计记录（或该过滤条件下无结果）</p>'}
     </div>
   </div>`;
 }

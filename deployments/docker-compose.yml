@@ -31,6 +31,8 @@ services:
       # 可选：预置首启引导 token（不设置则启动时打印一次到日志，§12.2）
       PB_BOOTSTRAP_CODE: ${PB_BOOTSTRAP_CODE:-}
       PB_TOKEN_TTL: ${PB_TOKEN_TTL:-720h}
+      # 审计日志保留天数（§12.2；默认 180 天，0 = 永久保留）
+      PB_AUDIT_RETENTION: ${PB_AUDIT_RETENTION:-180}
 
 volumes:
   passbook-data:

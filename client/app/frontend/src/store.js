@@ -45,8 +45,13 @@ export const useAppStore = defineStore('app', {
     toasts: [],
     passwordGenOpen: false,
     deleteConfirm: null, // 待删除确认的 EntryView
+    deleting: false, // 删除进行中（防重入：确认按钮可被连点）
+    syncing: false, // 同步进行中（防重入：避免并发同步撞服务端限流）
     selectedId: '', // 列表页当前选中条目 id（视图切换后恢复选中态）
     expandedIds: [], // 树展开的节点 id（视图切换后保持展开状态）
+    listSearch: '', // 列表页搜索词（工作台搜索框与列表页共用，跨视图保持）
+    searchFocusTick: 0, // 递增即请求列表页聚焦搜索框（Ctrl/⌘+K）
+    searchFocusHandled: 0, // 列表页已消费到的 tick（跨视图挂载时也能识别"有未处理的聚焦请求"）
     // 方案 J 浏览状态（跨视图保持）：当前项目 tab / 左树选中（env id 或 ''=项目本身）/ IP 聚焦
     pjProject: '', // 项目 id
     pjFocus: '', // 环境节点 id（'' = 项目本身 → 环境汇总）
@@ -95,45 +100,10 @@ export const useAppStore = defineStore('app', {
         this.autoUnlockEnabled = !!autoUnlock
         this.adminMode = !!adminMode
         this.syncMode = syncMode === 'manual' ? 'manual' : 'auto'
-        // 浏览器预览注入演示数据（仅 !inWails）
+        // 浏览器预览注入演示数据（仅 !inWails；数据在 src/mock.js，动态加载以免打进交付主包）
         if (!inWails) {
-          __mockSeeds([
-            {
-              id: 'p1', group_id: 'g1', type: 'project', title: '企业基础设施',
-              parent_id: null, fields: {}, custom_fields: {}, seq: 3, key_version: 1, updated_at: Date.now() / 1000, deleted: false,
-            },
-            {
-              id: 'e1', group_id: 'g1', type: 'env', title: '生产环境',
-              parent_id: 'p1', fields: {}, custom_fields: {}, seq: 5, key_version: 1, updated_at: Date.now() / 1000, deleted: false,
-            },
-            {
-              id: 'a1', group_id: 'g1', type: 'account', title: 'admin',
-              parent_id: 'e1', fields: {username: 'root', password: 'demo-password'}, custom_fields: {}, seq: 7, key_version: 1, updated_at: Date.now() / 1000, deleted: false,
-            },
-            {
-              id: 'a2', group_id: 'g1', type: 'account', title: 'ops', parent_id: 'e1',
-              fields: {username: 'opsuser', password: 'demo-password'}, custom_fields: {}, seq: 8, key_version: 1,
-              updated_at: Date.now() / 1000, deleted: false, conflict_of: 'server', dirty: true,
-            },
-            {
-              id: 'it1', group_id: 'g1', type: 'ip_type', title: '内网 IP', parent_id: 'e1',
-              fields: {}, custom_fields: {}, seq: 9, key_version: 1, updated_at: Date.now() / 1000, deleted: false,
-            },
-            {
-              id: 'at1', group_id: 'g1', type: 'acc_type', title: '运维账号', parent_id: 'it1',
-              fields: {}, custom_fields: {}, seq: 10, key_version: 1, updated_at: Date.now() / 1000, deleted: false,
-            },
-            {
-              id: 'a3', group_id: 'g1', type: 'account', title: 'deploy', parent_id: 'at1',
-              fields: {username: 'deploy', password: 'demo-password', ip: '10.0.0.7'}, custom_fields: {}, seq: 11, key_version: 1,
-              updated_at: Date.now() / 1000, deleted: false,
-            },
-            {
-              id: 'c1', group_id: 'g1', type: 'custom', title: '机房信息', parent_id: 'at1',
-              fields: {}, custom_fields: {机房: '深圳', 带宽: '10G'}, seq: 12, key_version: 1,
-              updated_at: Date.now() / 1000, deleted: false,
-            },
-          ])
+          const {seedEntries} = await import('./mock')
+          __mockSeeds(seedEntries)
         }
         const unlocked = await api.IsUnlocked()
         this.unlocked = unlocked
@@ -208,6 +178,27 @@ export const useAppStore = defineStore('app', {
       await this.refreshEntries()
     },
 
+    // 本地会话清理（不调后端）：凡"持有条目对象/会话视图态"的内存字段都必须在这里清空。
+    // EntryView 的 Plaintext 就是明文 JSON（api.js 还会把明文展开到对象上），故新增任何
+    // "暂存条目"的字段时，务必同步加进本函数——这是 §9.1「锁定即清空明文」的唯一落点。
+    clearLocalSession() {
+      this.unlocked = false
+      this.entries = []
+      this.editing = null
+      this.deleteConfirm = null
+      this.newCtx = null
+      this.passwordGenOpen = false
+      this.selectedId = ''
+      this.expandedIds = []
+      this.pjProject = ''
+      this.pjFocus = ''
+      this.pjIp = ''
+      this.listSearch = ''
+      this.searchFocusHandled = this.searchFocusTick // 消费掉未处理的聚焦请求，避免下次会话空聚焦
+      this.isAdmin = false
+      this.view = 'unlock'
+    },
+
     async lock() {
       try {
         await api.Lock()
@@ -215,11 +206,7 @@ export const useAppStore = defineStore('app', {
         // 锁定失败也必须立刻清空本地内存态（安全兜底：内存密钥绝不因后端失败滞留）
         console.warn('调用后端 Lock 失败，已强制清空本地态:', e)
       }
-      this.unlocked = false
-      this.entries = []
-      this.selectedId = ''
-      this.expandedIds = []
-      this.view = 'unlock'
+      this.clearLocalSession()
     },
 
     // 树展开/收起切换（展开态受控于 store，跨视图保持）
@@ -230,8 +217,14 @@ export const useAppStore = defineStore('app', {
     },
 
     async syncNow() {
-      await api.SyncNow()
-      await this.refreshStatus()
+      if (this.syncing) return // 防重入：手抖连点不要发并发同步（服务端按 token 限流）
+      this.syncing = true
+      try {
+        await api.SyncNow()
+        await this.refreshStatus()
+      } finally {
+        this.syncing = false
+      }
     },
 
     // 统一同步入口（同步 + 状态 + 条目刷新）：视图层只负责 toast，避免各视图重复实现
@@ -277,37 +270,54 @@ export const useAppStore = defineStore('app', {
       this.view = 'conflict'
     },
 
+    // 子树 id 收集（含自身）：一次遍历建父子索引，避免原实现"每层都 filter 全表"的 O(n²)
+    subtreeIds(root) {
+      const byParent = new Map()
+      for (const e of this.entries) {
+        if (e.deleted) continue
+        const arr = byParent.get(e.parent_id)
+        if (arr) arr.push(e)
+        else byParent.set(e.parent_id, [e])
+      }
+      const ids = []
+      const stack = [root]
+      while (stack.length) {
+        const cur = stack.pop()
+        ids.push(cur.id)
+        const kids = byParent.get(cur.id)
+        if (kids) for (const k of kids) stack.push(k)
+      }
+      return ids
+    },
+
     // 请求删除：计算子树条目数（§2：删除项目 = 批量推送子树墓碑），供确认弹窗提示
     askDelete(entry) {
-      let n = 1
-      const count = (e) => {
-        this.entries.filter((x) => !x.deleted && x.parent_id === e.id).forEach((c) => {
-          n++
-          count(c)
-        })
-      }
-      count(entry)
-      this.deleteConfirm = {...entry, subtree_count: n}
+      this.deleteConfirm = {...entry, subtree_count: this.subtreeIds(entry).length}
     },
 
     async confirmDelete() {
+      if (this.deleting) return // 防重入：确认按钮可被连点，避免重复推送子树墓碑
       const target = this.deleteConfirm
       if (!target) return
+      this.deleting = true
       try {
         // 收集子树全部 id（含自身），逐条墓碑删除（§2 删除级联约定）
-        const ids = []
-        const collect = (e) => {
-          ids.push(e.id)
-          this.entries.filter((x) => !x.deleted && x.parent_id === e.id).forEach(collect)
-        }
-        collect(target)
+        const ids = this.subtreeIds(target)
         for (const id of ids) await api.DeleteEntry(id)
         this.deleteConfirm = null
         await this.refreshEntries()
         this.toast(`已删除 ${ids.length} 条（同步后将同步到其他成员）`, 'success')
       } catch (e) {
         this.toast(String(e.message || e), 'error')
+      } finally {
+        this.deleting = false
       }
+    },
+
+    // Ctrl/⌘+K：打开列表页并聚焦搜索框（列表页 watch searchFocusTick 后聚焦）
+    openSearch() {
+      this.view = 'list'
+      this.searchFocusTick += 1
     },
 
     goto(view) {

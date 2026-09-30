@@ -410,6 +410,8 @@ func (m *memoryStore) ListAllDevices() ([]Device, error)     { return nil, errNo
 
 func (t *memoryTx) DeleteOldTombstones(int64) error { return errNotImpl }
 
+func (t *memoryTx) DeleteOldAudit(int64) (int64, error) { return 0, errNotImpl }
+
 func (t *memoryTx) RefreshTokenHash(string, string) error { return errNotImpl }
 
 // WithTxSeq 测试辅助：在事务内 UpsertEntry 并返回 seq。

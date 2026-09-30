@@ -651,6 +651,19 @@ func (t *sqliteTx) DeleteOldTombstones(before int64) error {
 	return classifyErr(err)
 }
 
+// DeleteOldAudit 物理删除早于 before 的审计日志（保留期清理；append-only 的唯一例外）。
+func (t *sqliteTx) DeleteOldAudit(before int64) (int64, error) {
+	res, err := t.tx.Exec(`DELETE FROM audit_log WHERE ts < ?`, before)
+	if err != nil {
+		return 0, classifyErr(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // classifyErr 将 SQLite 驱动错误映射为 store 哨兵错误。
 func classifyErr(err error) error {
 	if err == nil {

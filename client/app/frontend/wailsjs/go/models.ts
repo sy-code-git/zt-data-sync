@@ -48,6 +48,28 @@ export namespace api {
 	        this.archived = source["archived"];
 	    }
 	}
+	export class RecycleEntryView {
+	    id: string;
+	    group_id: string;
+	    plaintext: number[];
+	    seq: number;
+	    key_version: number;
+	    deleted_at: number;
+
+	    static createFrom(source: any = {}) {
+	        return new RecycleEntryView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.group_id = source["group_id"];
+	        this.plaintext = source["plaintext"];
+	        this.seq = source["seq"];
+	        this.key_version = source["key_version"];
+	        this.deleted_at = source["deleted_at"];
+	    }
+	}
 	export class GroupSyncState {
 	    id: string;
 	    name: string;
@@ -183,6 +205,38 @@ export namespace proto {
 	        this.online = source["online"];
 	        this.last_seen = source["last_seen"];
 	        this.status = source["status"];
+	    }
+	}
+	export class AuditEventOut {
+	    id: number;
+	    ts: number;
+	    user_id: string;
+	    user_name: string;
+	    action: string;
+	    device_id: string;
+	    device_name: string;
+	    hostname: string;
+	    ip: string;
+	    entry_id?: string;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AuditEventOut(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.ts = source["ts"];
+	        this.user_id = source["user_id"];
+	        this.user_name = source["user_name"];
+	        this.action = source["action"];
+	        this.device_id = source["device_id"];
+	        this.device_name = source["device_name"];
+	        this.hostname = source["hostname"];
+	        this.ip = source["ip"];
+	        this.entry_id = source["entry_id"];
+	        this.detail = source["detail"];
 	    }
 	}
 	export class DeviceBrief {
